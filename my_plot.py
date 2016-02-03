@@ -2,6 +2,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
+# blah
+
 def my_plot(plotdata,fig=None,fignum=1,figuresize=None,font='Arial',show=True,clear=True):
     '''Creates a figure with one subplot.
     Alternatively, clears lines from old figure and plots data.
