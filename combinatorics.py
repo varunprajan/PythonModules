@@ -1,5 +1,6 @@
 from scipy.special import binom
 import itertools as it
+import mymath
 
 combsize = 5
 decksize = 52
@@ -40,7 +41,7 @@ def unnumbered_four_kind():
     return suitsize*numbered_four_kind(n=combsize)
 
 def numbered_four_kind(n):
-    return hyper_poker(k=4,K=suitnum,n=n)
+    return numbered_pair_or_more(4,n)
     
 def unnumbered_three_kind():
     return suitsize*numbered_three_kind(n=combsize)
@@ -111,10 +112,4 @@ def multi_hypergeometric(kvec,Kvec,n,N):
     kremainder = n - sum(kvec)
     Kremainder = N - sum(Kvec)
     numer = (binom(K,k) for (k,K) in zip(kvec,Kvec))
-    return product(numer)*binom(Kremainder,kremainder)/binom(N,n)
-    
-def product(iterable):
-    product = 1
-    for x in iterable:
-        product *= x
-    return product
+    return mymath.product(numer)*binom(Kremainder,kremainder)/binom(N,n)

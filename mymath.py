@@ -3,6 +3,12 @@ import scipy.linalg as spla
 import itertools
 
 degfac = 180/np.pi
+    
+def product(iterable):
+    product = 1
+    for x in iterable:
+        product *= x
+    return product
 
 def is_odd(num):
     return (num+1)%2 == 0
