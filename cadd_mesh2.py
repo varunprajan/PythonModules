@@ -5,6 +5,8 @@ import mymath as Mmath
 from mymath import threewise, pairwise
 import cadd_io as cdio
 
+TOL = 1e-10
+
 class Line(object):
     coldict = {'x': 0, 'y': 1}
     
@@ -17,7 +19,7 @@ class Line(object):
         self.linelims = self.gen_line_lims()
         self.nodenums = None
         
-    def determine_direction(self,tol=1e-2):
+    def determine_direction(self,tol=TOL):
         """Determine which index (0 or 1 --- i.e. x or y)
         is constant for line.
         I.e. if 0, line is given by x = const."""
@@ -393,6 +395,9 @@ class Nodes(object):
         self.types = np.vstack((self.types,nodetype))
         return self.get_nnodes()-1 # count starts at zero
     
+    def set_node_bc(self,nodelist,bcnum):
+        self.types[nodelist,2] = bcnum
+    
     def set_node_type(self,nodelist,typenum):
         self.types[nodelist,1] = typenum
        
@@ -431,7 +436,7 @@ class Nodes(object):
         idx = np.argmin(dist)
         return nodenums[idx]
     
-    def check_fe_node_existence(self,pt,tol=1e-5):
+    def check_fe_node_existence(self,pt,tol=TOL):
         '''Returns two values: already, nodeclosestnum
         already indicates whether point is already in nodes
         nodenum is number of node, if point is already in nodes'''
@@ -463,7 +468,7 @@ class Nodes(object):
         pts = line.gen_n_points(n)
         return self.gen_fe_nodes_from_points(pts)
 
-    def search_for_nodes_along_line(self,line,tol=1e-5):
+    def search_for_nodes_along_line(self,line,tol=TOL):
         '''Return numbers of nodes (already existing) along line
         Nodes are sorted in direction of travel'''
         dist = np.abs(self.xy[:,line.col] - line.startpoint[line.col])
@@ -517,7 +522,7 @@ class Nodes(object):
             self.set_interface(nodenums)
         return actualbox
     
-    def nodes_outside_box(self,box,tol=1e-5):
+    def nodes_outside_box(self,box,tol=TOL):
         xmin, xmax, ymin, ymax = box.bounds
         idx1 = self.xy[:,0] < xmax + tol
         idx2 = self.xy[:,0] > xmin - tol

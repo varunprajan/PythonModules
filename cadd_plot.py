@@ -23,11 +23,11 @@ class Points(object):
         self.edgecolor = edgecolor
         self.facecolor = facecolor
         
-    def gen_collection(self):
+    def gen_collection(self,ax):
         return mplc.CircleCollection(transOffset=ax.transData,offsets=self.offsets,sizes=self.sizes,edgecolor=self.edgecolor,facecolor=self.facecolor)
         
     def plot(self,ax):
-        col = self.gen_collection()
+        col = self.gen_collection(ax)
         ax.add_collection(col)
         
 class PointsFixed(object):

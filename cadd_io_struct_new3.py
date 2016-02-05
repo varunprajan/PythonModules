@@ -170,7 +170,7 @@ class CADDData(Struct):
             self.detection = Detection()
     
     def read_user_inputs(self,mainuserinputfile,subdir):
-        datadict = cdio.readInput(mainuserinputfile,subdir=subdir) # read user inputs into dictionary
+        datadict = cdio.read_input(mainuserinputfile,subdir=subdir) # read user inputs into dictionary
         self.read_from_dict(datadict) # read dictionary into self.data
         self.check_data() # checks validity of inputs
     

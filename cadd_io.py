@@ -28,7 +28,6 @@ def are_all_files_equivalent(fidir,restartdir,suffix='.0.restart'):
         fpath1 = os.path.join(fidir,fname1)
         fpath2 = os.path.join(restartdir,fname1+suffix)
         if not are_fortran_files_equivalent(fpath1,fpath2):
-            print(fname1)
             return False
     return True
 
@@ -87,14 +86,14 @@ def reshape_for_writing(array):
 def read_from_dump(dumpfile,filetag='',endtag='end'):
     datadict = {}
     with open(dumpfile,'r') as f:
-        for key, value, _ in generFile(f,filetag): # filetag is not used here
-            genernew = Mio.generReadUntil(f,endtag)
-            value = Mio.myReadArray(genernew)
+        for key, value, _ in yield_file_items(f,filetag): # filetag is not used here
+            genernew = Mio.yield_until(f,endtag)
+            value = Mio.my_read_array(genernew)
             datadict[key] = value
     return datadict
 
-def generFile(f,filetag,commentmarker='#'):
-    for line in Mio.readWithComments(f,comment=commentmarker):
+def yield_file_items(f,filetag,commentmarker='#'):
+    for line in Mio.yield_no_comments(f,comment=commentmarker):
         words = line.strip().split(':')
         key, value = words[0].strip(), words[1].strip()
         isfile = key.startswith(filetag)
@@ -102,47 +101,47 @@ def generFile(f,filetag,commentmarker='#'):
             key = Mio.findKey(key,filetag,'')
         yield (key, value, isfile)
 
-def readInput(filename,filetag=filetagtry,endtag='end',subdir=''):
+def read_input(filename,filetag=filetagtry,endtag='end',subdir=''):
     datadict = {}
     with open(subdir+filename,'r') as f:
-        for key, value, isfile in generFile(f,filetag):
+        for key, value, isfile in yield_file_items(f,filetag):
             if not value:
-                genernew = Mio.generReadUntil(f,endtag)
+                genernew = Mio.yield_until(f,endtag)
                 if isfile: # read list of structures
-                    value = [readInput(file,filetag,endtag,subdir) for file in genernew]
+                    value = [read_input(file,filetag,endtag,subdir) for file in genernew]
                 else: # read array
-                    value = Mio.myReadArray(genernew)
+                    value = Mio.my_read_array(genernew)
             else:
                 if isfile:
                     try: # read file with array
-                        value = Mio.myReadArray(subdir+value)
+                        value = Mio.my_read_array(subdir+value)
                     except ValueError: # read structure file
-                        value = readInput(value,filetag,endtag,subdir)
+                        value = read_input(value,filetag,endtag,subdir)
                 else:
                     value = Mio.coerce_string(value)
             datadict[key] = value
     return datadict
         
 # python dictionary to user input files
-def writeInput(datadict,filename,filetag=filetagtry,endtag='end',subdir=''):
+def write_input(datadict,filename,filetag=filetagtry,endtag='end',subdir=''):
     endwithspace = endtag + '\n\n'
     with open(subdir+filename,'w') as f:
         filepref = Mio.getFilePrefix(filename)
         for key, val in sorted(datadict.items()):
             if isinstance(val,np.ndarray):
                 f.write('{0}: \n'.format(key))
-                Mio.myWriteArray(f,val)
+                Mio.my_write_array(f,val)
                 f.write(endwithspace)
             elif isinstance(val,dict):
                 dictfilename = key + '.' + filepref
                 f.write('{0}{1}: {2}\n\n'.format(filetag,key,dictfilename))
-                writeInput(val,dictfilename,filetag,endtag,subdir)
+                write_input(val,dictfilename,filetag,endtag,subdir)
             elif isinstance(val,list):
                 f.write('{0}{1}: \n'.format(filetag,key))
                 for i, subdict in enumerate(val):
                     dictfilename = '{0}_{1}.{2}'.format(key,i,filepref)
                     f.write(dictfilename + '\n')
-                    writeInput(subdict,dictfilename,filetag,endtag,subdir)
+                    write_input(subdict,dictfilename,filetag,endtag,subdir)
                 f.write(endwithspace)
             else:
                 f.write('{0}: {1}\n\n'.format(key,val))

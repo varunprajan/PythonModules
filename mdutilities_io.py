@@ -35,7 +35,7 @@ class DumpFile(LammpsFile):
         self.headerlines = self.header_lines()
     
     def header_lines(self,key='ITEM: ATOMS'):
-        with open(filepath,'r') as f:
+        with open(self.filepath,'r') as f:
             for i, line in enumerate(f):
                 if line.startswith(key):
                     return i
@@ -48,16 +48,16 @@ class DumpFile(LammpsFile):
         return res
 
     def cut_down_file(self,bounds,chunksize=1000000):
-        reader = pd.read_csv(filepath,sep=' ',skiprows=self.headerlines,iterator=True,chunksize=chunksize)
-        readernew = yield_cut_chunk(reader,bounds)
+        reader = pd.read_csv(self.filepath,sep=' ',skiprows=self.headerlines,iterator=True,chunksize=chunksize)
+        readernew = self.yield_cut_chunk(reader)
         return np.concatenate(list(readernew),axis=0)
         
-    def yield_cut_chunk(reader,bounds,indices=range(2,5)):
+    def yield_cut_chunk(self,reader,indices=range(2,5)):
         for chunk in reader:
             values = chunk.values
             indexall = np.ones((values.shape[0],), dtype=bool)
-            if bounds is not None:
-                for [posmin, posmax], index in zip(bounds,indices):
+            if self.bounds is not None:
+                for [posmin, posmax], index in zip(self.bounds,indices):
                     valuescurr = values[:,index]
                     indexall = indexall & (posmin <= valuescurr) & (valuescurr <= posmax)
             yield values[indexall,:]

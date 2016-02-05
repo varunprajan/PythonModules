@@ -151,16 +151,16 @@ class CADDDataDump(object):
         return cdplot.Edges(segments,linewidth,linecolor)
         
     def gen_disl_plot(self,aspectratio=1,size=dislobjsize,color=dislobjcolor):
-        if self.dislpos:
+        if self.dislpos.size:
             pos, markers = self.gen_disl_pos_and_markers(aspectratio)
             return cdplot.MultipleMarkers(pos,markers,color=color,size=size)
 
     def gen_sources_plot(self,size=dislobjsize,edgecolor=dislobjcolor,facecolor='w'):
-        if self.sources:
+        if self.sources.size:
             return cdplot.Points(self.sources,size,edgecolor,facecolor)
 
     def gen_obstacles_plot(self,size=dislobjsize,edgecolor=dislobjcolor,facecolor=dislobjcolor):
-        if self.obstacles:
+        if self.obstacles.size:
             return cdplot.Points(self.obstacles,size,edgecolor,facecolor)
         
     def gen_all_plot(self,attrlist):
