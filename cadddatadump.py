@@ -4,12 +4,12 @@ import dislocation_marker as dm
 import itertools
 
 atomradius = 0.3
-dislobjsize = 100
+dislobjsize = 300
 keydict = {'def': 'deformed_positions', 'undef': 'undeformed_positions', 'disp': 'displacements',
            'connect': 'fe_elements', 'types': 'types', 'dislpos': 'dislocation_positions', 'centrosymmetry': 'centro',
-           'disltypes': 'dislocation_attributes', 'sources': 'source_positions', 'obstacles': 'obstacle_positions'}
+           'disltypes': 'dislocation_attributes', 'sources': 'source_positions', 'obstacles': 'obstacle_positions',
+           'theta': 'slipsys_angles'}
 typedict = {'atoms': 1, 'fenodes': 0, 'pad': -1, 'interface': 2}
-isysdict = {1: -60, 2: 0, 3: 60}
 typecol = 1
 isyscol = 0
 bsgncol = 1
@@ -32,7 +32,9 @@ class CADDDataDump(object):
     def array_from_key(self,key):
         val = self.from_key(key)
         if val is not None:
-            if len(val.shape) == 1: # just 1 source, 1 obstacle, etc.
+            if len(val.shape) == 0:
+                val = np.array([val])
+            elif len(val.shape) == 1: # just 1 source, 1 obstacle, etc.
                 val = val[np.newaxis,:]
         return val
     
@@ -61,7 +63,14 @@ class CADDDataDump(object):
     @property
     def obstacles(self):
         return self.array_from_key('obstacles')
+        
+    @property
+    def slipsystheta(self):
+        return self.array_from_key('theta')        
     
+    def theta_from_isys(self,isys):
+        return self.slipsystheta[isys-1] # off by one issue for indexing (Python vs. Fortran)
+        
     def all_positions(self,deformed):
         if deformed:
             return self.deformedpos
@@ -111,8 +120,8 @@ class CADDDataDump(object):
         bsgnvec = np.unique(self.disltypes[:,bsgncol])
         markers, pos = [], []
         for (isys,bsgn) in itertools.product(isysvec,bsgnvec):
-            theta = isysdict[isys]
-            marker = dm.gen_marker(theta,bsgn,width,aspectratio,degoption=True)
+            theta = self.theta_from_isys(isys)
+            marker = dm.gen_marker(theta,bsgn,width,aspectratio,degoption=False)
             markers.append(marker)
             xy = self.get_relevant_disl(isys,bsgn)
             pos.append(xy)

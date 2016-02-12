@@ -189,7 +189,7 @@ class Mesh(object):
             cdio.write_array_sub_dump(self.nodes.xy,f,'undeformed_positions')
             disp = np.zeros(self.nodes.xy.shape)
             cdio.write_array_sub_dump(disp,f,'displacements')
-
+            
 class MeshQuad(Mesh):
     def __init__(self,nodesperel=4,nodes=None):
         super().__init__(nodesperel,nodes)

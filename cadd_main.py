@@ -13,21 +13,21 @@ endtag = 'end'
 class Simulation(object):
     """Top-level class for CADD simulation. Contains simname, simtype ('cadd','cadd_nodisl','fe', etc.)
     and directories for inputs and outputs."""
-    def __init__(self,simtype,simname,userpath='',fortranpath='',dumppath='',readinput=True,simfile=None):
+    def __init__(self,simtype,simname,userpath='',fortranpath='',dumppath='',readinput=True,simfile=None,nfematerials=None):
         self.simtype = simtype
         self.simname = simname
         self.userpath = userpath
         self.fortranpath = fortranpath
         self.dumppath = dumppath
         if readinput:
-            self.read_user_input_data(simfile)
+            self.read_user_input_data(simfile,nfematerials)
     
     # read inputs
-    def read_user_input_data(self,simfile=None):
+    def read_user_input_data(self,simfile=None,nfematerials=None):
         """Populate data by reading it from a set of *user* simulation files in directory userpath."""
         if simfile is None:
             simfile = self.simfile
-        self.data = CADDData(self.simtype) # (re-)initialize
+        self.data = CADDData(self.simtype,nfematerials=nfematerials) # (re-)initialize
         self.data.read_user_inputs(simfile,subdir=self.userpath)
     
     @property
@@ -89,7 +89,6 @@ class Simulation(object):
         E.g. increment = 100 -> '[simname].100.dump'"""
         return '{}.{}{}'.format(self.simname,increment,suffix)
 
-        
 class Struct(object):
     """Generic structure container. Can perform reads from dictionary, writes to fortran file,
     and checks of data validity"""
@@ -115,7 +114,7 @@ class Struct(object):
         with the same number of rows. For instance, for dislocations, the arrays containing dislocation positions,
         signs, cuts, etc. should all have the same number of rows: ndisl
         If all arrays have zero rows, this is declared explicitly."""
-        nrowslist = [getattr(self,attr).shape[0] for attr in attributelist]
+        nrowslist = [getattr(self,attr).nrows for attr in attributelist]
         if len(set(nrowslist)) != 1: # i.e. dissimilar entries
             raise ValueError('Nrows is not consistent across arrays for structure {0}'.format(self))
 
@@ -137,7 +136,7 @@ class CADDData(Struct):
     """Second-level class for CADD simulation. Contains all
     of the various structures (nodes, materials, compute, etc.)
     for the specific simulation"""            
-    def __init__(self,simtype):        
+    def __init__(self,simtype,nfematerials=None):        
         # general
         self.nodes = Nodes()
         self.materials = ListStruct(Material)
@@ -158,9 +157,10 @@ class CADDData(Struct):
                 
         # dd
         if simtype in ['dd','cadd']:
+            self.dislmisc = DislMisc(nfematerials=nfematerials) # if not None, will use default constants for nmaxdisl, etc.
             self.disl = ListStruct(Dislocations)
-            self.ghostdisl = ListStruct(GhostDislocations)
             self.escapeddisl = ListStruct(EscapedDislocations)
+            self.ghostdisl = ListStruct(GhostDislocations)
             self.obstacles = ListStruct(Obstacles)
             self.sources = ListStruct(Sources)
             self.slipsys = ListStruct(SlipSystem)
@@ -175,12 +175,34 @@ class CADDData(Struct):
         self.check_data() # checks validity of inputs
     
     def struct_check(self):
+        self.check_interactions()
+        self.check_nfematerials()
+        
+    def check_interactions(self):
         try:
             nmaterials = self.materials.num_structs
             npotentials = self.potentials.num_structs
             self.interactions.check_all(nmaterials,npotentials)
         except AttributeError:
             pass
+            
+    def check_nfematerials(self):
+        n = self.get_nfematerials()
+        if len(n) > 1:
+            raise ValueError('Inconsistent number of fematerials across structures')
+            
+    def get_nfematerials(self):
+        n = set()
+        for attr in ['feelements','disl','escapeddisl','ghostdisl','obstacles','sources','slipsys']:
+            try:
+                n.add(getattr(self,attr).num_structs)
+            except AttributeError:
+                pass
+        try:
+            n.add(self.dislmisc.nfematerials)
+        except AttributeError:
+            pass
+        return n   
 
 class ListStruct(object):
     """Third-level class for CADD simulation. Contains information corresponding
@@ -268,6 +290,10 @@ class ArrayData(object):
     @property
     def shape(self):
         return self.val.shape
+        
+    @property
+    def nrows(self):
+        return self.val.shape[0]
     
     # checks
     def check_data(self):
@@ -389,9 +415,10 @@ class Material(Struct):
     _melconstcheck = [3]
     _nelconstcheck = [3]
 
-    def __init__(self,burgers=None,disldrag=None,elconst=None,lannih=None,lattice=None,mass=None,mname=None,rho=None):
+    def __init__(self,burgers=None,disldrag=None,dislvmax=None,elconst=None,lannih=None,lattice=None,mass=None,mname=None,rho=None):
         self.burgers = Data(burgers,'Burgers vector',float)
         self.disldrag = Data(disldrag,'Dislocation drag coefficient',float)
+        self.dislvmax = Data(dislvmax,'Max dislocation velocity',float)
         self.elconst = ArrayData(elconst,'Elastic constants',float,[Material._melconstcheck,Material._nelconstcheck])
         self.lannih = Data(lannih,'Annihilation distance',float)
         self.lattice = Data(lattice,'Lattice name',str)
@@ -517,6 +544,44 @@ class SlipSystem(Struct):
     
     def struct_check(self):
         self.check_equal_rows(['origin','nslipplanes','space','theta'])
+        
+class DislMisc(Struct):
+    _nmaxdisl = 1000
+    _nmaxdislslip = 40
+    _nmaxescapeddisl = 1000
+    _nmaxghostdisl = 100
+    _nmaxobsslip = 20
+    _nmaxsrcslip = 20
+
+    def __init__(self,gradientcorrection=1,nmaxdisl=None,nmaxdislslip=None,nmaxescapeddisl=None,
+                 nmaxghostdisl=None,nmaxobsslip=None,nmaxsrcslip=None,nfematerials=None):
+        if nfematerials is not None:
+            if nmaxdisl is None:
+                nmaxdisl = DislMisc._nmaxdisl*np.ones((nfematerials,)).astype(int)
+            if nmaxdislslip is None:
+                nmaxdislslip = DislMisc._nmaxdislslip*np.ones((nfematerials,)).astype(int)
+            if nmaxescapeddisl is None:
+                nmaxescapeddisl = DislMisc._nmaxescapeddisl*np.ones((nfematerials,)).astype(int)
+            if nmaxghostdisl is None:
+                nmaxghostdisl = DislMisc._nmaxghostdisl*np.ones((nfematerials,)).astype(int)
+            if nmaxobsslip is None:
+                nmaxobsslip = DislMisc._nmaxobsslip*np.ones((nfematerials,)).astype(int)
+            if nmaxsrcslip is None:
+                nmaxsrcslip = DislMisc._nmaxsrcslip*np.ones((nfematerials,)).astype(int)
+        self.gradientcorrection = Data(gradientcorrection,'Is there a gradient correction for the DD velocity?',int)
+        self.nmaxdisl = ArrayData(nmaxdisl,'Maximum number of dislocations per fe material',int,[None])
+        self.nmaxdislslip = ArrayData(nmaxdislslip,'Maximum number of dislocations per slip plane',int,[None])
+        self.nmaxescapeddisl = ArrayData(nmaxescapeddisl,'Maximum number of escaped dislocations per fe material',int,[None])
+        self.nmaxghostdisl = ArrayData(nmaxghostdisl,'Maximum number of ghost dislocations per fe material',int,[None])
+        self.nmaxobsslip = ArrayData(nmaxobsslip,'Maximum number of obstacles per slip plane',int,[None])
+        self.nmaxsrcslip = ArrayData(nmaxsrcslip,'Maximum number of sources per slip plane',int,[None])
+    
+    @property
+    def nfematerials(self):
+        return self.nmaxdisl.size
+        
+    def struct_check(self):
+        self.check_equal_rows(['nmaxdisl','nmaxdislslip','nmaxescapeddisl','nmaxghostdisl','nmaxobsslip','nmaxsrcslip'])
     
 class Misc(Struct):
     def __init__(self,dumpincrement=0,incrementcurr=0,increments=None,iscrackproblem=0,potstyle='null',restartincrement=0,timestep=None):
