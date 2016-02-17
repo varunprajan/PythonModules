@@ -9,3 +9,5 @@ def stiffness_2d_voigt(E,nu):
     stiffness3dvoigt = cr.cubicVoigt({'11': C11, '12': C12, '44': C44})
     return stiffness3dvoigt[[[0],[1],[5]],[0,1,5]]
     
+
+    

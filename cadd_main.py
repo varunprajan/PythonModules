@@ -13,28 +13,31 @@ endtag = 'end'
 class Simulation(object):
     """Top-level class for CADD simulation. Contains simname, simtype ('cadd','cadd_nodisl','fe', etc.)
     and directories for inputs and outputs."""
-    def __init__(self,simtype,simname,userpath='',fortranpath='',dumppath='',readinput=True,simfile=None,nfematerials=None):
+    def __init__(self,simtype,simname,userpath='',fortranpath='',dumppath='',readinput=True,simfile=None,nfematerials=None,data=None):
         self.simtype = simtype
         self.simname = simname
         self.userpath = userpath
         self.fortranpath = fortranpath
         self.dumppath = dumppath
-        if readinput:
-            self.read_user_input_data(simfile,nfematerials)
+        if data is not None:
+            self.data = data
+        elif readinput:
+            self.data = read_user_input_data(simfile,nfematerials)
     
     # read inputs
     def read_user_input_data(self,simfile=None,nfematerials=None):
-        """Populate data by reading it from a set of *user* simulation files in directory userpath."""
+        """Generate data by reading it from a set of *user* simulation files in directory userpath."""
         if simfile is None:
             simfile = self.simfile
-        self.data = CADDData(self.simtype,nfematerials=nfematerials) # (re-)initialize
-        self.data.read_user_inputs(simfile,subdir=self.userpath)
+        data = CADDData(self.simtype,nfematerials=nfematerials) # (re-)initialize
+        data.read_user_inputs(simfile,subdir=self.userpath)
+        return data
     
     @property
     def simfile(self,suffix='.inp'):
         """Name of main user input file"""
         return self.simname + suffix
-
+    
     # write inputs (fortran)
     def write_fortran_all(self):
         """Write data to a set of *fortran* simulation files in directory fortranpath."""
@@ -136,39 +139,43 @@ class CADDData(Struct):
     """Second-level class for CADD simulation. Contains all
     of the various structures (nodes, materials, compute, etc.)
     for the specific simulation"""            
-    def __init__(self,simtype,nfematerials=None):        
+    def __init__(self,simtype,nfematerials=None,nodes=None,materials=None,misc=None,groups=None,compute=None,potentials=None,
+                                                interactions=None,neighbors=None,damping=None,feelements=None,dislmisc=None,
+                                                disl=None,escapeddisl=None,ghostdisl=None,obstacles=None,sources=None,slipsys=None,
+                                                detection=None):        
         # general
-        self.nodes = Nodes()
-        self.materials = ListStruct(Material)
-        self.misc = Misc()
-        self.groups = ListStruct(Group)
-        self.compute = Compute()
+        self.nodes = Nodes() if nodes is None else nodes
+        self.materials = ListStruct(Material,materials)
+        self.misc = Misc() if misc is None else misc
+        self.groups = ListStruct(Group,groups)
+        self.compute = Compute() if compute is None else compute
             
         # atomistic
         if simtype in ['atomistic','cadd','cadd_nodisl']:
-            self.potentials = ListStruct(Potential)
-            self.interactions = Interactions()
-            self.neighbors = Neighbors()
-            self.damping = Damping()
+            self.potentials = ListStruct(Potential,potentials)
+            self.interactions = Interactions() if interactions is None else interactions
+            self.neighbors = Neighbors() if neighbors is None else neighbors
+            self.damping = Damping() if damping is None else damping
                 
         # fe
         if simtype in ['fe','dd','cadd','cadd_nodisl']:
-            self.feelements = ListStruct(FEElement)
+            self.feelements = ListStruct(FEElement,feelements)
                 
         # dd
         if simtype in ['dd','cadd']:
-            self.dislmisc = DislMisc(nfematerials=nfematerials) # if not None, will use default constants for nmaxdisl, etc.
-            self.disl = ListStruct(Dislocations)
-            self.escapeddisl = ListStruct(EscapedDislocations)
-            self.ghostdisl = ListStruct(GhostDislocations)
-            self.obstacles = ListStruct(Obstacles)
-            self.sources = ListStruct(Sources)
-            self.slipsys = ListStruct(SlipSystem)
+            self.dislmisc = DislMisc(nfematerials=nfematerials) if dislmisc is None else dislmisc # if not None, will use default constants for nmaxdisl, etc.
+            self.disl = ListStruct(Dislocations,disl)
+            self.escapeddisl = ListStruct(EscapedDislocations,escapeddisl)
+            self.ghostdisl = ListStruct(GhostDislocations,ghostdisl)
+            self.obstacles = ListStruct(Obstacles,obstacles)
+            self.sources = ListStruct(Sources,sources)
+            self.slipsys = ListStruct(SlipSystem,slipsys)
                 
         # cadd
         if simtype == 'cadd':
-            self.detection = Detection()
+            self.detection = Detection() if detection is None else detection
     
+    # read/check
     def read_user_inputs(self,mainuserinputfile,subdir):
         datadict = cdio.read_input(mainuserinputfile,subdir=subdir) # read user inputs into dictionary
         self.read_from_dict(datadict) # read dictionary into self.data
@@ -202,15 +209,15 @@ class CADDData(Struct):
             n.add(self.dislmisc.nfematerials)
         except AttributeError:
             pass
-        return n   
+        return n
 
 class ListStruct(object):
     """Third-level class for CADD simulation. Contains information corresponding
     to a list of structures (e.g. material information, where there is a structure
     for each material)"""
-    def __init__(self,subclass):
+    def __init__(self,subclass,structlist=None):
         """Subclass is the class of the individual structure"""
-        self.structlist = []
+        self.structlist = [] if structlist is None else structlist
         self.subclass = subclass
     
     def __repr__(self):

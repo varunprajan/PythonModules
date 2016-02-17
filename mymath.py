@@ -3,6 +3,9 @@ import scipy.linalg as spla
 import itertools
 
 degfac = 180/np.pi
+
+def same_sign(t1,t2):
+    return not((t1 > 0) != (t2 > 0))
     
 def product(iterable):
     product = 1

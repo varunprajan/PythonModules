@@ -1,5 +1,11 @@
 import matplotlib as mpl
 import copy
+import my_plot as myplot
+
+def my_quick_plot(data,**kwargs):
+    plotdata = LinePlotData.from_dataset(data)
+    fig = myplot.my_plot(plotdata)
+    myplot.pretty_figure(fig,**kwargs)
 
 def get_setter_fun(attribute):
     return 'set_' + attribute

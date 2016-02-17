@@ -11,18 +11,18 @@ usfvec2d = np.array([0.6333,0.5265,0.4309,0.3422,0.2641,0.1966,0.1397])
 epvec3d = np.array([0.009,0.077,0.143,0.207,0.266,0.318])
 usfvec3d = np.array([0.8818,0.7344,0.6024,0.4816,0.3758,0.2824])
 
-def genStdPotential(ductilityindex,dimensions,r0=r0def):
+def gen_std_potential(ductilityindex,dimensions,r0=r0def):
     if dimensions == 2:
         epvec, usfvec = epvec2d, usfvec2d*2**(1/6)/r0
     elif dimensions == 3:
         epvec, usfvec = epvec3d, usfvec3d*2**(1/3)/r0**2
     return NewPotential(dimensions,r0,ep=epvec[ductilityindex],usf=usfvec[ductilityindex])
     
-def genUSFPotential(usftarget,dimensions,r0=r0def):
+def gen_usf_potential(usftarget,dimensions,r0=r0def):
     ep = estimate_ep(dimensions,r0,usftarget)
     return NewPotential(dimensions,r0,ep=ep)
     
-def genNonStdPotential(dimensions,r0=r0def,**kwargs):
+def gen_non_std_potential(dimensions,r0=r0def,**kwargs):
     return NewPotential(dimensions,r0,**kwargs)
     
 class NewPotential(SplinePotential):
@@ -105,10 +105,6 @@ class NewPotential(SplinePotential):
     
     # used for computing Kic, Kie, etc.    
     def get_K_props(self,lattice):
-        if (self.dimensions == 2):
-            rho = 2/(np.sqrt(3)*self.r0**2)
-        elif (self.dimensions == 3):
-            rho = np.sqrt(2)/self.r0**3
         alpha = self.alphabar/self.r0
         # for closed-packed slip
         if self.usf is None:
@@ -130,45 +126,74 @@ class NewPotential(SplinePotential):
             Velastic = {'11': C11, '33': C11*16/15, '13': C11*4/15, '44': C11*4/15, '66': C11/3}
             Vsurface = {'001': {'surf': 1.458*2**(1/3)/self.r0**2}}
         return {'elastic': Velastic, 'surface': Vsurface, 'unstable': {'full': self.usf, 'partial': self.usf}, 'symmetry': symmetry, 'rho': rho}
+        
+    def estimate_ep(self,usftarget):
+        """
+        Estimates phi(r2) = ep required to achieve
+        a desired gamma_us
+        """
+        return -((usftarget - self.offsetusf)*self.area - 1)/2
 
-def estimate_ep(dimensions,r0,usftarget):
-    """
-    Estimates phi(r2) = ep required to achieve
-    a desired gamma_us
-    """
-    offsetusf = get_offset_usf(dimensions,r0)
-    area = get_area(dimensions,r0)
-    return -((usftarget - offsetusf)*area - 1)/2
+    def estimate_usf(self,ep):
+        """
+        Estimates gamma_us for the potential, using phi(r2) = ep
+        and the offset value (obtained from molecular statics)
+        """
+        return (1 - 2*np.abs(ep))/self.area + self.offset_usf
 
-def estimate_usf(dimensions,r0,ep):
-    """
-    Estimates gamma_us for the potential, using phi(r2) = ep
-    and the offset value (obtained from molecular statics)
-    """
-    offsetusf = get_offset_usf(dimensions,r0)
-    area = get_area(dimensions,r0)
-    return (1 - 2*np.abs(ep))/area + offsetusf 
-
-def get_area(dimensions,r0):
-    """
-    Returns the area of the plane along which slip occurs
-    (for calculation of gamma_us)
-    """
-    if dimensions == 2:
-        return r0
-    elif dimensions == 3:
-        return np.sqrt(3)/2*r0**2
+    def elasticdict(self,lattice):
+        alpha = self.alphabar/self.r0
+        if self.dimensions == 2:
+            if lattice == 'hex':
+                C11 = 3/2*np.sqrt(3)*alpha**2
+                return {'11': C11, '33': C11, '12': C11/3, '13': C11/3, '44': C11/3, '66': C11/3} # 3d constants are dummy               
+        elif self.dimensions == 3:
+            if lattice == 'fcc':
+                C11 = 2*np.sqrt(2)*alpha**2/self.r0
+                return {'11': C11, '12': C11/2, '44': C11/2}
+            elif lattice == 'hcp':
+                C11 = 5/np.sqrt(2)*alpha**2/self.r0
+                return {'11': C11, '33': C11*16/15, '13': C11*4/15, '44': C11*4/15, '66': C11/3}
+        raise ValueError('Undefined lattice')
     
-def get_offset_usf(dimensions,r0):
-    """
-    Returns the offset value for gamma_us
-    I.e. the difference between the analytical estimate and the
-    actual (molecular statics) value.
-    """
-    if dimensions == 2:
-        return -0.078*2**(1/6)/r0
-    elif dimensions == 3:
-        return -0.052*2**(2/6)/r0**2
+    @property
+    def surfacedict(self,lattice):
+        if lattice == 'hex':
+            return {'112': 1/self.r0}
+        elif lattice == 'fcc':
+            return {'111': np.sqrt(3)/self.r0**2, '001': 2/self.r0**2, '011': np.sqrt(9/2)/self.r0**2}
+        elif lattice == 'hcp':
+            return {'001': 1.458*2**(1/3)/self.r0**2}       
+        
+    @property
+    def rho(self):
+        if (self.dimensions == 2):
+            return 2/(np.sqrt(3)*self.r0**2)
+        elif (self.dimensions == 3):
+            return np.sqrt(2)/self.r0**3        
+        
+    @property
+    def area(self):
+        """
+        Returns the area of the plane along which slip occurs
+        (for calculation of gamma_us)
+        """
+        if self.dimensions == 2:
+            return self.r0
+        elif self.dimensions == 3:
+            return np.sqrt(3)/2*self.r0**2
+    
+    @property
+    def offset_usf(self):
+        """
+        Returns the offset value for gamma_us
+        I.e. the difference between the analytical estimate and the
+        actual (molecular statics) value.
+        """
+        if self.dimensions == 2:
+            return -0.078*2**(1/6)/self.r0
+        elif self.dimensions == 3:
+            return -0.052*2**(2/6)/self.r0**2
         
 # obsolete stuff
 # 2d

@@ -16,9 +16,12 @@ class TabularPotential:
     def get_force_table(self,rvec):
         return np.array([[r,self.get_force(r)] for r in rvec])
         
+    def get_energy_force_table(self,rvec):
+        return np.array([[r,self.get_energy(r),self.get_force(r)] for r in rvec])  
+    
     def write_file_lammps(self,filename,rvec,writeoption='w',extend=False,name='dummy',fac=0.1):
         if extend:
-            rvec = np.insert(rvec,0,rvec[0]*fac)
+            np.insert(rvec,0,rvec[0]*fac)
         with open(filename,writeoption) as f:
             npoints = np.shape(rvec)[0]
             self._write_header_lammps_(f,npoints,name)

@@ -7,61 +7,71 @@ class Material(object):
     def __init__(self,crystalstructure,elasticprops):
         self.structure = crystalstructure
         self.elasticprops = elasticprops
-        self.symmetry = self.get_symmetry()
-        self.stiffness = self.get_stiffness()
-        
-    def get_symmetry(self):
+    
+    @property
+    def symmetry(self):
         if self.structure == 'bcc' or self.structure == 'fcc':
             return 'cubic'
         elif self.structure == 'hcp' or self.structure == 'hex':
-            return 'hex'
-            
-    def get_stiffness(self):
+            return 'hexagonal'
+    
+    @property
+    def voigt_stiffness(self):
         if self.symmetry == 'cubic':
             return cubic_voigt(self.elasticprops)
         elif self.symmetry == 'hexagonal':
             return hex_voigt(self.elasticprops)
             
-    def rotated_stiffness(self,aold,anew):
-        stiffnesstensor = voigt_to_tensor(self.stiffness)
+    @property
+    def voigt_compliance(self):
+        return spla.inv(self.voigt_stiffness)
+    
+    @property
+    def voigt_plane_strain_stiffness(self):
+        return plane_strain_stiffness(self.voigt_stiffness)
+    
+    @property
+    def voigt_plane_strain_compliance(self):
+        return spla.inv(voigt_plane_strain_stiffness)
+            
+    def voigt_rotated_stiffness(self,aold,anew):
+        stiffnesstensor = voigt_to_tensor(self.voigt_stiffness)
         stiffnesstensorrot = rotate_tensor(stiffnesstensor,aold,anew)
         return tensor_to_voigt(stiffnesstensorrot)  
 
-    def rotated_compliance(self,aold,anew):
+    def voigt_rotated_compliance(self,aold,anew):
         rotatedstiffness = self.rotated_stiffness(aold,anew)
         return spla.inv(rotatedstiffness)
         
-    def plane_strain_compliance(self,aold,anew,symmoption=False):
+    def voigt_rotated_plane_strain_compliance(self,aold,anew,symmoption=False):
         rotatedstiffness = self.rotated_stiffness(aold,anew)
-        planestrainstiffness = rotatedstiffness[[[0],[1],[5]],[0,1,5]]
+        planestrainstiffness = plane_strain_stiffness(rotatedstiffness)
         if symmoption: # eliminate shear-normal coupling terms
-            for i, j in zip([0,1],[2,2]):
-                planestrainstiffness[i,j] = 0
-                planestrainstiffness[j,i] = 0
+            planestrainstiffness = elim_coupling(planestrainstiffness)
         return spla.inv(planestrainstiffness)
         
-    def get_aniso_k_const(self,aold,anew,symmoption=False):
+    def aniso_k_const(self,aold,anew,symmoption=False):
         compliance = self.plane_strain_compliance(aold,anew,symmoption)
-        return get_lekh_eigenvalues(compliance)
+        return lekh_eigenvalues(compliance)
         
-    def get_surface_energy(self,plane):
+    def surface_energy(self,plane):
         pass
       
-    def get_usf_energy(self,plane,direction):
+    def usf_energy(self,plane,direction):
         pass
 
-    def compute_A(self,aold,anew):
+    def A_const(self,aold,anew):
         compliance = self.plane_strain_compliance(aold,anew)
         return get_aniso_fac(compliance)
     
-    def compute_kic(self,aold,anew):
+    def kic(self,aold,anew):
         crackplane = anew[1,:]
         crackplanekey = convert_to_string(crackplane,1)
         gammasurf = self.get_surface_energy(crackplanekey)
-        A = self.compute_A(aold,anew)
+        A = self.A_const(aold,anew)
         return np.sqrt(2*gammasurf/A)
         
-    def compute_kie(self,aold,anew,burgersvector,symmoption=False,printoption=False):
+    def kie(self,aold,anew,burgersvector,symmoption=False,printoption=False):
         crackfront = anew[2,:]
         crackplane = anew[1,:]
         slipplane = plane_spanned_by_vecs(crackfront,burgersvector)
@@ -74,7 +84,7 @@ class Material(object):
             print('Slip Plane: {0}'.format(slipplane))
             print('Theta: {0} (degrees)'.format(Mmath.degfac*theta))
             print('Phi: {0} (degrees)'.format(Mmath.degfac*phi))
-        compliance = self.plane_strain_compliance(aold,anewslip,symmoption)
+        compliance = self.voigt_rotated_plane_strain_compliance(aold,anewslip,symmoption)
         (nu, mu) = isotropic_constants(compliance)
         slipplanekey = convert_to_string(slipplane,1)
         burgerskey = convert_to_string(burgersvector,1)
@@ -84,9 +94,9 @@ class Material(object):
         except ZeroDivisionError:
             return np.inf
             
-    def compute_k_both(self,aold,anew,burgersvector,symmoption=False,printoption=False):
-        kic = self.compute_kic(aold,anew)
-        kie = self.compute_kie(aold,anew,burgersvector,symmoption,printoption)
+    def k_both(self,aold,anew,burgersvector,symmoption=False,printoption=False):
+        kic = self.kic(aold,anew)
+        kie = self.kie(aold,anew,burgersvector,symmoption,printoption)
         if printoption:
             print('K_ic: {0}'.format(kic))
             print('K_ie: {0}'.format(kie))
@@ -98,10 +108,10 @@ class FCC(Material):
         self.usfenergy = usfenergy
         super().__init__('fcc',elasticprops)
 
-    def get_surface_energy(self,plane):
+    def surface_energy(self,plane):
         return self.surfaceenergies[plane]
         
-    def get_usf_energy(self,plane,direction):
+    def usf_energy(self,plane,direction):
         if direction == '211' and plane == '111': # partial
             return self.usfenergy       
 
@@ -111,12 +121,21 @@ class BCC(Material):
         self.usfenergies = usfenergies
         super().__init__('bcc',elasticprops)
         
-    def get_surface_energy(self,plane):
+    def surface_energy(self,plane):
         return self.surfaceenergies[plane]
         
-    def get_usf_energy(self,plane,direction):
+    def usf_energy(self,plane,direction):
         if direction == '111':
             return self.usfenergies[plane]
+
+def elim_shear_normal(planestiffness):
+    for i, j in zip([0,1],[2,2]):
+        planestiffness[i,j] = 0
+        planestiffness[j,i] = 0
+    return planestiffness
+            
+def plane_strain_stiffness(stiffness3d):
+    return stiffness3d[[[0],[1],[5]],[0,1,5]]
             
 def rotate_tensor(tensor,aold,anew):
     rt = rotation_tensor(aold,anew)

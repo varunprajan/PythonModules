@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import itertools
 import mymath as Mmath
 
-def nsqNeigh(xy,rneigh,nmaxneigh):
+def nsq_neighbors(xy,rneigh,nmaxneigh):
     dist = genDistanceMatrix(xy)
     n = np.shape(xy)[0]
     neigh = np.zeros((n,nmaxneigh),dtype=int)
@@ -16,7 +16,7 @@ def nsqNeigh(xy,rneigh,nmaxneigh):
                 count = count + 1
     return neigh
 
-def genDistanceMatrix(xy):
+def distance_matrix(xy):
     n = np.shape(xy)[0]
     dist = np.zeros((n,n))
     for i, acurr in enumerate(xy):
@@ -24,7 +24,7 @@ def genDistanceMatrix(xy):
             dist[i,j] = Mmath.get_dist(acurr,bcurr)
     return dist
 
-def genSimpleArray(xsize,ysize,r0=1):
+def simple_hex_lattice(xsize,ysize,r0=1):
     xmin = -xsize/2
     xmax = xsize/2
     ymin = -ysize/2
@@ -34,20 +34,19 @@ def genSimpleArray(xsize,ysize,r0=1):
     n2 = int(round(1.2*ysize/a2[0]))
     n1 = n2
     orig = np.array([xmin,ymax])-n2*a2
-    xvec, yvec = simpleArray(orig,a1,a2,n1,n2)
-    xvec, yvec = enforceArrayBounds(xvec,yvec,[xmin,xmax,ymin,ymax])
+    xvec, yvec = simple_2d_lattice(orig,a1,a2,n1,n2)
+    xvec, yvec = enforce_array_bounds(xvec,yvec,[xmin,xmax,ymin,ymax])
     xy = np.column_stack((xvec,yvec))
     return xy
 
-def enforceArrayBounds(xvec,yvec,bounds):
+def enforce_array_bounds(xvec,yvec,bounds):
     xmin, xmax, ymin, ymax = bounds
     indexx = (xmin < xvec) & (xvec < xmax)
     indexy = (ymin < yvec) & (yvec < ymax)
     index = indexx & indexy
     return xvec[index], yvec[index]
 
-def simpleArray(orig,a1,a2,n1,n2,tol=1.e-6):
-    # create lattice
+def simple_2d_lattice(orig,a1,a2,n1,n2):
     xmat = np.empty((n1,n2))
     ymat = np.empty((n1,n2))
     iter = itertools.product(range(n1),range(n2))

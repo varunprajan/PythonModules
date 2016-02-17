@@ -91,6 +91,13 @@ class Box(object):
     def populate_nodes(self,nodes):
         for line in self.lines:
             line.nodenums = nodes.search_for_nodes_along_line(line)
+    
+    @property
+    def all_nodes(self):
+        res = []
+        for line in self.lines:
+            res.extend(line.nodenums)
+        return list(set(res)) # remove uniques
             
     def box_dimensions(self):
         xmin, xmax, ymin, ymax = self.bounds
@@ -409,6 +416,7 @@ class Nodes(object):
         
     def set_pad(self,nodelist):
         self.set_node_type(nodelist,-1)
+        self.set_node_bc(nodelist,3) # pad atoms are completely fixed for atomistic step
         
     def set_interface(self,nodelist):
         self.set_node_type(nodelist,2)
