@@ -6,9 +6,7 @@ import cadddatadump as cddump
 import my_plot as myplot
 import os
 import itertools
-
-filetag = 'files_'
-endtag = 'end'
+import warnings
 
 class Simulation(object):
     """Top-level class for CADD simulation. Contains simname, simtype ('cadd','cadd_nodisl','fe', etc.)
@@ -260,6 +258,7 @@ class Data(object):
         self.val = val
         self.name = name
         self.desiredtype = desiredtype
+        self.coerce_val()
 
     def __repr__(self):
         return '{0}: {1}'.format(self.name,self.val)
@@ -278,6 +277,15 @@ class Data(object):
     
     def read_from_dict(self,val):
         self.val = val
+        self.coerce_val()
+        
+    def coerce_val(self):
+        if isinstance(self.val,bool) and (self.desiredtype is int): # boolean to integer
+            self.val = int(self.val)
+        if isinstance(self.val,int) and (self.desiredtype is float): # integer to floating point
+            self.val = float(self.val)
+            warnings.warn('Converting integer in "{}" to floating point'.format(self))
+        
  
 class ArrayData(object):
     """Contains array data. For instance, to store the finite element connectivity, we would use:
