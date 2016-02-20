@@ -178,6 +178,7 @@ class Mesh(object):
         return elements
     
     # input/output
+    @property
     def elements_dump(self):
         return self.elements + 1 # Python vs. Fortran indexing issue
     
@@ -187,11 +188,11 @@ class Mesh(object):
     
     def write_user_inputs_elements(self,elpref,subdir):
         filename = '{}.connect'.format(subdir+elpref)
-        cdio.write_array(self.elements_dump(),filename)
+        cdio.write_array(self.elements_dump,filename)
         
     def write_dump_all(self,filename):
         with open(filename,'w') as f:
-            cdio.write_array_sub_dump(self.elements_dump(),f,'fe_elements')
+            cdio.write_array_sub_dump(self.elements_dump,f,'fe_elements')
             cdio.write_array_sub_dump(self.nodes.types,f,'types')
             cdio.write_array_sub_dump(self.nodes.xy,f,'undeformed_positions')
             disp = np.zeros(self.nodes.xy.shape)

@@ -21,7 +21,7 @@ class TabularPotential:
     
     def write_file_lammps(self,filename,rvec,writeoption='w',extend=False,name='dummy',fac=0.1):
         if extend:
-            np.insert(rvec,0,rvec[0]*fac)
+            rvec = np.insert(rvec,0,rvec[0]*fac)
         with open(filename,writeoption) as f:
             npoints = np.shape(rvec)[0]
             self._write_header_lammps_(f,npoints,name)
