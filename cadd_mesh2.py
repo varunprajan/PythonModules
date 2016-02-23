@@ -7,9 +7,7 @@ import cadd_io as cdio
 
 TOL = 1e-10
 
-class Line(object):
-    coldict = {'x': 0, 'y': 1}
-    
+class Line(object):    
     def __init__(self,startpoint,endpoint):
         self.startpoint = startpoint
         self.endpoint = endpoint
@@ -388,8 +386,9 @@ class Nodes(object):
     def write_types(self,nodespref,subdir):
         filename = '{}.types'.format(subdir+nodespref)
         cdio.write_array(self.types,filename)    
-        
-    def get_nnodes(self):
+    
+    @property
+    def nnodes(self):
         return self.xy.shape[0]
         
     def get_points(self,nodelist):
@@ -401,7 +400,7 @@ class Nodes(object):
     def add_node(self,coords,nodetype):
         self.xy = np.vstack((self.xy,coords))
         self.types = np.vstack((self.types,nodetype))
-        return self.get_nnodes()-1 # count starts at zero
+        return self.nnodes-1 # count starts at zero
     
     def set_node_bc(self,nodelist,bcnum):
         self.types[nodelist,2] = bcnum
@@ -431,7 +430,7 @@ class Nodes(object):
             return self.xy[nodenum,:]
     
     def closest_node(self,pt):
-        if self.get_nnodes() > 0:
+        if self.nnodes > 0:
             dist = np.linalg.norm(self.xy - pt, axis=1)
             return np.argmin(dist)
 

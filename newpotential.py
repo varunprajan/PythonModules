@@ -19,40 +19,48 @@ def gen_std_potential(ductilityindex,dimensions,r0=r0def):
     return NewPotential(dimensions,r0,ep=epvec[ductilityindex],usf=usfvec[ductilityindex])
     
 def gen_usf_potential(usftarget,dimensions,r0=r0def):
-    ep = estimate_ep(dimensions,r0,usftarget)
-    return NewPotential(dimensions,r0,ep=ep)
+    return NewPotential(dimensions,r0,usftarget=usftarget)
     
 def gen_non_std_potential(dimensions,r0=r0def,**kwargs):
     return NewPotential(dimensions,r0,**kwargs)
     
 class NewPotential(SplinePotential):
-    r2bardef = {2: np.sqrt(2), 3: np.sqrt(3/2)}
-    rnnndef = {2: np.sqrt(3) - 0.02, 3: np.sqrt(2) - 0.02}
-    alphabardef = {2: 3.5*2**(1/6), 3: 6.5*2**(1/6)}
-
-    def __init__(self,dimensions,r0,ep,usf=None,r1bar=1.05,r2bar=None,r3bar=None,rnnn=None,alphabar=None,offset=0.0,spline=None):
+    R2BARDEF = {2: np.sqrt(2), 3: np.sqrt(3/2)}
+    RNNNDEF = {2: np.sqrt(3) - 0.02, 3: np.sqrt(2) - 0.02}
+    ALPHABARDEF = {2: 3.5*2**(1/6), 3: 6.5*2**(1/6)}
+    
+    def __init__(self,dimensions,r0,ep=None,usf=None,r1bar=1.05,r2bar=None,r3bar=None,rnnn=None,alphabar=None,offset=0.0,spline=None,usftarget=None):
         self.dimensions = dimensions
         self.r0 = r0
+        if ep is None:
+            ep = self.estimate_ep(usftarget)
         self.ep = ep
-        self.usf = usf
+        self._usf = usf
         self.r1bar = r1bar
         if r2bar is None:
-            self.r2bar = NewPotential.r2bardef[dimensions]
+            self.r2bar = self.R2BARDEF[dimensions]
         if rnnn is None:
-            self.rnnn = NewPotential.rnnndef[dimensions]
+            self.rnnn = self.RNNNDEF[dimensions]
         if alphabar is None:
-            self.alphabar = NewPotential.alphabardef[dimensions]
+            self.alphabar = self.ALPHABARDEF[dimensions]
         self.r3bar = r3bar
         self.offset = offset
         super().__init__(spline)
-        
+    
+    @property
+    def usf(self):
+        if self._usf is None:
+            return self.estimate_usf()
+        else:
+            return self._usf
+    
     def gen_splines(self,r3barfac=0.98,step=0.01,tol=1.e-8):
         while r3barfac > 0:
             self.r3bar = self.r2bar + (self.rnnn - self.r2bar)*r3barfac
-            def getResidual(coeff):
+            def residual(coeff):
                 self._set_splines_coeff_(coeff)
                 return self._residual_()
-            coeffsol = spo.fsolve(getResidual,np.zeros(8))
+            coeffsol = spo.fsolve(residual,np.zeros(8))
             self._set_splines_coeff_(coeffsol)
             # 2nd spline can be non-attractive; if so, reduce r3bar
             maxval2 = Mmath.max_poly_root(self.spline[1])
@@ -102,44 +110,6 @@ class NewPotential(SplinePotential):
             return self._spline_force_(rbar,1)/self.r0
         else:
             return 0
-    
-    # used for computing Kic, Kie, etc.    
-    def get_K_props(self,lattice):
-        alpha = self.alphabar/self.r0
-        # for closed-packed slip
-        if self.usf is None:
-            self.usf = self.estimate_usf()
-        # lattice-dependent properties
-        if lattice == 'hex':
-            symmetry = 'cubic'
-            C11 = 3/2*np.sqrt(3)*alpha**2
-            Velastic = {'11': C11, '12': C11/3, '44': C11/3}
-            Vsurface = {'112': {'surf': 1/self.r0}}
-        elif lattice == 'fcc':
-            symmetry = 'cubic'
-            C11 = 2*np.sqrt(2)*alpha**2/self.r0
-            Velastic = {'11': C11, '12': C11/2, '44': C11/2}
-            Vsurface = {'111': {'surf': np.sqrt(3)/self.r0**2}, '001': {'surf': 2/self.r0**2}, '011': {'surf': np.sqrt(9/2)/self.r0**2}}
-        elif lattice == 'hcp':
-            symmetry = 'hexagonal'
-            C11 = 5/np.sqrt(2)*alpha**2/self.r0
-            Velastic = {'11': C11, '33': C11*16/15, '13': C11*4/15, '44': C11*4/15, '66': C11/3}
-            Vsurface = {'001': {'surf': 1.458*2**(1/3)/self.r0**2}}
-        return {'elastic': Velastic, 'surface': Vsurface, 'unstable': {'full': self.usf, 'partial': self.usf}, 'symmetry': symmetry, 'rho': rho}
-        
-    def estimate_ep(self,usftarget):
-        """
-        Estimates phi(r2) = ep required to achieve
-        a desired gamma_us
-        """
-        return -((usftarget - self.offsetusf)*self.area - 1)/2
-
-    def estimate_usf(self,ep):
-        """
-        Estimates gamma_us for the potential, using phi(r2) = ep
-        and the offset value (obtained from molecular statics)
-        """
-        return (1 - 2*np.abs(ep))/self.area + self.offset_usf
 
     def elasticdict(self,lattice):
         alpha = self.alphabar/self.r0
@@ -154,16 +124,21 @@ class NewPotential(SplinePotential):
             elif lattice == 'hcp':
                 C11 = 5/np.sqrt(2)*alpha**2/self.r0
                 return {'11': C11, '33': C11*16/15, '13': C11*4/15, '44': C11*4/15, '66': C11/3}
-        raise ValueError('Undefined lattice')
     
-    @property
     def surfacedict(self,lattice):
         if lattice == 'hex':
-            return {'112': 1/self.r0}
+            return {'211': 1/self.r0, '100': 1/self.r0}
         elif lattice == 'fcc':
-            return {'111': np.sqrt(3)/self.r0**2, '001': 2/self.r0**2, '011': np.sqrt(9/2)/self.r0**2}
+            return {'111': np.sqrt(3)/self.r0**2, '100': 2/self.r0**2, '110': np.sqrt(9/2)/self.r0**2}
         elif lattice == 'hcp':
-            return {'001': 1.458*2**(1/3)/self.r0**2}       
+            return {'100': 1.458*2**(1/3)/self.r0**2}
+
+    def unstabledict(self,lattice):
+        if lattice == 'hex':
+            dislocationtype = 'full'
+        elif lattice in ['fcc','hcp']:
+            dislocationtype = 'partial'
+        return {dislocationtype: self.usf}
         
     @property
     def rho(self):
@@ -182,7 +157,21 @@ class NewPotential(SplinePotential):
             return self.r0
         elif self.dimensions == 3:
             return np.sqrt(3)/2*self.r0**2
-    
+       
+    def estimate_ep(self,usftarget):
+        """
+        Estimates phi(r2) = ep required to achieve
+        a desired gamma_us
+        """
+        return -((usftarget - self.offsetusf)*self.area - 1)/2
+
+    def estimate_usf(self):
+        """
+        Estimates gamma_us for the potential, using phi(r2) = ep
+        and the offset value (obtained from molecular statics)
+        """
+        return (1 - 2*np.abs(self.ep))/self.area + self.offset_usf
+            
     @property
     def offset_usf(self):
         """

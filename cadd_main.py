@@ -8,6 +8,8 @@ import os
 import itertools
 import warnings
 
+TEMPGROUPNAME = 'temp'
+
 class Simulation(object):
     """Top-level class for CADD simulation. Contains simname, simtype ('cadd','cadd_nodisl','fe', etc.)
     and directories for inputs and outputs."""
@@ -20,7 +22,7 @@ class Simulation(object):
         if data is not None:
             self.data = data
         elif readinput:
-            self.data = read_user_input_data(simfile,nfematerials)
+            self.data = self.read_user_input_data(simfile,nfematerials)
     
     # read inputs
     def read_user_input_data(self,simfile=None,nfematerials=None):
@@ -101,8 +103,7 @@ class Struct(object):
     
     # checks
     def check_data(self):
-        """Checks that data is 'correct' (correct type, dimensions) by performing a check on self, as well
-        as on each member in self"""
+        """Checks that data in struct is 'correct' (dimensionally consistent)"""
         self.struct_check()
         for key, val in self.__dict__.items():
             val.check_data()
@@ -161,7 +162,7 @@ class CADDData(Struct):
                 
         # dd
         if simtype in ['dd','cadd']:
-            self.dislmisc = DislMisc(nfematerials=nfematerials) if dislmisc is None else dislmisc # if not None, will use default constants for nmaxdisl, etc.
+            self.dislmisc = DislMisc(nfematerials=nfematerials) if dislmisc is None else dislmisc # if None, will use default constants
             self.disl = ListStruct(Dislocations,disl)
             self.escapeddisl = ListStruct(EscapedDislocations,escapeddisl)
             self.ghostdisl = ListStruct(GhostDislocations,ghostdisl)
@@ -176,8 +177,8 @@ class CADDData(Struct):
     # read/check
     def read_user_inputs(self,mainuserinputfile,subdir):
         datadict = cdio.read_input(mainuserinputfile,subdir=subdir) # read user inputs into dictionary
-        self.read_from_dict(datadict) # read dictionary into self.data
-        self.check_data() # checks validity of inputs
+        self.read_from_dict(datadict) # read dictionary
+        self.check_data() # check validity of inputs
     
     def struct_check(self):
         self.check_interactions()
@@ -255,37 +256,50 @@ class Data(object):
     self.name = 'FE element name'
     self.desiredtype = str"""
     def __init__(self,val,name,desiredtype):
-        self.val = val
         self.name = name
         self.desiredtype = desiredtype
-        self.coerce_val()
+        self.val = val
 
     def __repr__(self):
         return '{0}: {1}'.format(self.name,self.val)
         
-    def check_data(self):
-        self.check_type()
+    @property
+    def val(self):
+        return self._val
         
+    @val.setter
+    def val(self,value):
+        if value is not None:
+            self._val = self.coerce_val(value)
+            self.check_type()
+        else:
+            self._val = None
+        
+    def coerce_val(self,val):
+        if isinstance(val,bool) and (self.desiredtype is int): # boolean to integer
+            val = int(val)
+        if isinstance(val,int) and (self.desiredtype is float): # integer to floating point
+            warnings.warn('Converting integer in "{}" to floating point'.format(self.name))
+            val = float(val)
+        return val
+            
     def check_type(self):
         """Check if data value is of the desired type"""
         if not isinstance(self.val,self.desiredtype):
             raise ValueError('{} must be of type {}'.format(self,self.desiredtype))
     
-    def write_fortran(self,f):
-        """Write data to fortran file, with file descriptor f"""
-        f.write('{} \n'.format(self.val))
+    def check_data(self):
+        """Check that data is correct. Most of this has already been done by setter routine,
+        so simply check that val is not None"""
+        if self.val is None:
+            raise ValueError('Uninitialized value in {}'.format(self.name))
     
     def read_from_dict(self,val):
         self.val = val
-        self.coerce_val()
-        
-    def coerce_val(self):
-        if isinstance(self.val,bool) and (self.desiredtype is int): # boolean to integer
-            self.val = int(self.val)
-        if isinstance(self.val,int) and (self.desiredtype is float): # integer to floating point
-            self.val = float(self.val)
-            warnings.warn('Converting integer in "{}" to floating point'.format(self))
-        
+            
+    def write_fortran(self,f):
+        """Write data to fortran file, with file descriptor f"""
+        f.write('{} \n'.format(self.val))      
  
 class ArrayData(object):
     """Contains array data. For instance, to store the finite element connectivity, we would use:
@@ -294,10 +308,10 @@ class ArrayData(object):
     self.name = 'FE element connectivity'
     self.desiredshape = [None,[3,4]] # for triangular or rectangular elements"""
     def __init__(self,val,name,desiredtype,desiredshape):
-        self.val = val
         self.desiredtype = desiredtype
         self.name = name
         self.desiredshape = desiredshape
+        self.val = val
 
     def __repr__(self):
         return 'Numpy array "{0}"'.format(self.name,self.val)
@@ -310,16 +324,24 @@ class ArrayData(object):
     def nrows(self):
         return self.val.shape[0]
     
-    # checks
-    def check_data(self):
-        self.ensure_type()
-        self.check_shape()
+    @property
+    def val(self):
+        return self._val
+        
+    @val.setter
+    def val(self,value):
+        if value is None:
+            self._val = self.default_array
+        else:
+            self._val = self.coerce_dimensionality(value)
+            self.ensure_type()
+            self.check_shape()
     
     def ensure_type(self):
         """Attempt to convert array to desired type (e.g. int to float)
         If this attempt fails, throw an error"""
         try:
-            self.val = self.val.astype(self.desiredtype)
+            self._val = self.val.astype(self.desiredtype)
         except AttributeError:
             message1 = 'Type conversion failed\n'
             message2 = '{0} must be numpy array of type {1}'.format(self,self.desiredtype)
@@ -342,35 +364,42 @@ class ArrayData(object):
             return m in mdesired
         else:
             return True
-    
-    # read
-    def read_from_dict(self,val):
-        """Read value of array; coerce dimensionality if necessary.
-        (This makes check_shape logic much simpler)"""
-        self.val = self.coerce_dimensionality(val)
-        
+       
     def coerce_dimensionality(self,val):
         """Coerce array to have correct dimensionality:
         1) Empty array -> 1D or 2D arrays with zero rows
         2) Single number -> 1D array with a single entry
         3) Single row -> 2D array with a single row"""
         if not val.size: # no entries
-            val = self.zero_row_array()
+            val = self.default_array
         if not val.shape: # single entry
             val = np.array([val])
         if len(self.desiredshape) == 2: # single row
             if len(val.shape) == 1:
                 val = val[np.newaxis,:]
         return val
+    
+    @property
+    def default_array(self):
+        """If array is empty, create 1D or 2D zero array with zero rows, according to desired shape"""
+        dims = []
+        for desireddim in self.desiredshape:
+            if desireddim is None:
+                dim = 0
+            else:
+                try:
+                    dim = desireddim[0]
+                except TypeError:
+                    dim = desireddim
+            dims.append(dim)
+        return np.zeros(tuple(dims)).astype(self.desiredtype)
         
-    def zero_row_array(self):
-        """If array is empty, create 1D or 2D empty array with zero rows, according to desired shape"""
-        try:
-            ncolslist = self.desiredshape[1]
-            n = ncolslist[0] # irrelevant which entry of desiredshape we use
-            return np.zeros((0,n)).astype(self.desiredtype)
-        except IndexError: # 1D arrays
-            return np.zeros((0,)).astype(self.desiredtype)
+    def check_data(self):
+        pass
+    
+    # read
+    def read_from_dict(self,val):
+        self.val = val
     
     # write
     def write_fortran(self,f):
@@ -385,13 +414,13 @@ class ArrayData(object):
         cdio.write_array_sub(array,f)
             
 class Nodes(Struct):
-    _nposcheck = [3,7]
-    _ntypescheck = [3]
+    _NPOSCHECK = [3,7]
+    _NTYPESCHECK = [3]
     
     def __init__(self,posn=None,types=None):
-        self.posn = ArrayData(posn,'Node positions',float,[None,Nodes._nposcheck])
-        self.types = ArrayData(types,'Node types',int,[None,Nodes._ntypescheck])
-            
+        self.posn = ArrayData(posn,'Node positions',float,[None,self._NPOSCHECK])
+        self.types = ArrayData(types,'Node types',int,[None,self._NTYPESCHECK])
+	
     def struct_check(self):
         self.check_equal_rows(['posn','types'])
         self.pad_zeros()
@@ -401,13 +430,13 @@ class Nodes(Struct):
         of posn equal to zero"""
         posnarray = self.posn.val
         mpos, npos = posnarray.shape
-        if npos == Nodes._nposcheck[0]:
-            nposextra = Nodes._nposcheck[1] - Nodes._nposcheck[0]
+        if npos == self._NPOSCHECK[0]:
+            nposextra = self._NPOSCHECK[1] - self._NPOSCHECK[0]
             zeropadarray = np.zeros((mpos,nposextra))
             self.posn.val = np.column_stack((posnarray,zeropadarray))
 
 class FEElement(Struct):
-    _nconnectcheck = {'CPE3': [3], 'CPE4': [4]}
+    _NCONNECTCHECK = {'CPE3': [3], 'CPE4': [4]}
     
     def __init__(self,elname=None,mnum=None,connect=None):
         self.elname = Data(elname,'FE element name',str)
@@ -420,21 +449,21 @@ class FEElement(Struct):
     def check_elements(self):
         """Checks if # nodes/element in connect matches # expected based on element name"""
         try:
-            nelnodesdesired = FEElement._nconnectcheck[self.elname.val]
-            if self.connect.val.shape[1] not in nelnodesdesired:
+            nelnodesdesired = self._NCONNECTCHECK[self.elname.val]
+            if self.connect.shape[1] not in nelnodesdesired:
                 raise ValueError('Inconsistent nodes per element for elname {0}'.format(self.elname.val))
         except KeyError:
             raise ValueError('Undefined element type')
             
 class Material(Struct):
-    _melconstcheck = [3]
-    _nelconstcheck = [3]
+    _MELCONSTCHECK = [3]
+    _NELCONSTCHECK = [3]
 
     def __init__(self,burgers=None,disldrag=None,dislvmax=None,elconst=None,lannih=None,lattice=None,mass=None,mname=None,rho=None):
         self.burgers = Data(burgers,'Burgers vector',float)
         self.disldrag = Data(disldrag,'Dislocation drag coefficient',float)
         self.dislvmax = Data(dislvmax,'Max dislocation velocity',float)
-        self.elconst = ArrayData(elconst,'Elastic constants',float,[Material._melconstcheck,Material._nelconstcheck])
+        self.elconst = ArrayData(elconst,'Elastic constants',float,[self._MELCONSTCHECK,self._NELCONSTCHECK])
         self.lannih = Data(lannih,'Annihilation distance',float)
         self.lattice = Data(lattice,'Lattice name',str)
         self.mass = Data(mass,'Atomic mass',float)
@@ -442,12 +471,12 @@ class Material(Struct):
         self.rho = Data(rho,'Density',float)
         
 class Potential(Struct):
-    _npotcheck = [3]
+    _NPOTCHECK = [3]
 
     def __init__(self,forcecutoff=None,pname=None,pottable=None):
         self.forcecutoff = Data(forcecutoff,'Potential force cutoff',float)
         self.pname = Data(pname,'Potential name',str)
-        self.pottable = ArrayData(pottable,'Potential table',float,[None,Potential._npotcheck])
+        self.pottable = ArrayData(pottable,'Potential table',float,[None,self._NPOTCHECK])
         
 class Group(Struct):
     def __init__(self,gname=None,members=None):
@@ -455,10 +484,10 @@ class Group(Struct):
         self.members = ArrayData(members,'Group members',int,[None])
         
 class Interactions(Struct):
-    _ntablecheck = [3]
+    _NTABLECHECK = [3]
 
     def __init__(self,table=None):
-        self.table = ArrayData(table,'Interaction table',int,[None,Interactions._ntablecheck])
+        self.table = ArrayData(table,'Interaction table',int,[None,self._NTABLECHECK])
     
     def check_all(self,nmaterials,npotentials):
         self.check_missing_interactions(nmaterials)
@@ -488,12 +517,12 @@ class Neighbors(Struct):
         self.skin = Data(skin,'Skin distance',float)
 
 class Dislocations(Struct):
-    _nposncheck = [2]
-    _nlocalposcheck = [2]
+    _NPOSNCHECK = [2]
+    _NLOCALPOSCHECK = [2]
 
     def __init__(self,cut=None,posn=None,sgn=None,slipsys=None):
         self.cut = ArrayData(cut,'Dislocation branch cut',int,[None])
-        self.posn = ArrayData(posn,'Dislocation positions',float,[None,Dislocations._nposncheck])
+        self.posn = ArrayData(posn,'Dislocation positions',float,[None,self._NPOSNCHECK])
         self.sgn = ArrayData(sgn,'Dislocation signs',int,[None])
         self.slipsys = ArrayData(slipsys,'Dislocation slip system',int,[None])
     
@@ -501,11 +530,11 @@ class Dislocations(Struct):
         self.check_equal_rows(['cut','posn','sgn','slipsys'])      
         
 class GhostDislocations(Struct):
-    _nposncheck = [2]
+    _NPOSNCHECK = [2]
 
     def __init__(self,cut=None,posn=None,sgn=None,slipsys=None):
         self.cut = ArrayData(cut,'Ghost dislocation branch cut',int,[None])
-        self.posn = ArrayData(posn,'Ghost dislocation positions',float,[None,GhostDislocations._nposncheck])
+        self.posn = ArrayData(posn,'Ghost dislocation positions',float,[None,self._NPOSNCHECK])
         self.sgn = ArrayData(sgn,'Ghost dislocation sign',int,[None])
         self.slipsys = ArrayData(slipsys,'Ghost dislocation slip system',int,[None])
     
@@ -513,11 +542,11 @@ class GhostDislocations(Struct):
         self.check_equal_rows(['cut','posn','sgn','slipsys'])
         
 class EscapedDislocations(Struct):
-    _nposncheck = [2]
+    _NPOSNCHECK = [2]
 
     def __init__(self,cut=None,posn=None,region=None,sgn=None,slipsys=None):
         self.cut = ArrayData(cut,'Escaped dislocation branch cut',int,[None])
-        self.posn = ArrayData(posn,'Escaped dislocation positions',float,[None,EscapedDislocations._nposncheck])
+        self.posn = ArrayData(posn,'Escaped dislocation positions',float,[None,self._NPOSNCHECK])
         self.region = ArrayData(region,'Region of escaped dislocation',int,[None])
         self.sgn = ArrayData(sgn,'Escaped dislocation sign',int,[None])
         self.slipsys = ArrayData(slipsys,'Escaped dislocation slip system',int,[None])
@@ -526,10 +555,10 @@ class EscapedDislocations(Struct):
         self.check_equal_rows(['cut','posn','region','sgn','slipsys'])
         
 class Obstacles(Struct):
-    _nposncheck = [2]
+    _NPOSNCHECK = [2]
 
     def __init__(self,posn=None,slipsys=None,taucr=None):
-        self.posn = ArrayData(posn,'Obstacle positions',float,[None,Obstacles._nposncheck])
+        self.posn = ArrayData(posn,'Obstacle positions',float,[None,self._NPOSNCHECK])
         self.slipsys = ArrayData(slipsys,'Obstacle slip system',int,[None])
         self.taucr = ArrayData(taucr,'Obstacle critical shear stress',float,[None])
     
@@ -537,10 +566,10 @@ class Obstacles(Struct):
         self.check_equal_rows(['posn','slipsys','taucr'])
         
 class Sources(Struct):
-    _nposncheck = [2]
+    _NPOSNCHECK = [2]
 
     def __init__(self,posn=None,slipsys=None,taucr=None,tnuc=None):
-        self.posn = ArrayData(posn,'Source positions',float,[None,Sources._nposncheck])
+        self.posn = ArrayData(posn,'Source positions',float,[None,self._NPOSNCHECK])
         self.slipsys = ArrayData(slipsys,'Source slip system',int,[None])
         self.taucr = ArrayData(taucr,'Source critical shear stress',float,[None])
         self.tnuc = ArrayData(tnuc,'Source nucleation time',float,[None])
@@ -549,11 +578,11 @@ class Sources(Struct):
         self.check_equal_rows(['posn','slipsys','taucr','tnuc'])
         
 class SlipSystem(Struct):
-    _norigincheck = [2]
+    _NORIGINCHECK = [2]
 
     def __init__(self,nslipplanes=None,origin=None,space=None,theta=None):
         self.nslipplanes = ArrayData(nslipplanes,'Number of planes in slip system',int,[None])
-        self.origin = ArrayData(origin,'Origin of slip system',float,[None,SlipSystem._norigincheck])
+        self.origin = ArrayData(origin,'Origin of slip system',float,[None,self._norigincheck])
         self.space = ArrayData(space,'Spacing of slip planes',float,[None])
         self.theta = ArrayData(theta,'Angle of slip system',float,[None])
     
@@ -561,28 +590,28 @@ class SlipSystem(Struct):
         self.check_equal_rows(['origin','nslipplanes','space','theta'])
         
 class DislMisc(Struct):
-    _nmaxdisl = 1000
-    _nmaxdislslip = 40
-    _nmaxescapeddisl = 1000
-    _nmaxghostdisl = 100
-    _nmaxobsslip = 20
-    _nmaxsrcslip = 20
+    _NMAXDISL = 1000
+    _NMAXDISLSLIP = 40
+    _NMAXESCAPEDDISL = 1000
+    _NMAXGHOSTDISL = 100
+    _NMAXOBSSLIP = 20
+    _NMAXSRCSLIP = 20
 
     def __init__(self,gradientcorrection=1,nmaxdisl=None,nmaxdislslip=None,nmaxescapeddisl=None,
                  nmaxghostdisl=None,nmaxobsslip=None,nmaxsrcslip=None,nfematerials=None):
         if nfematerials is not None:
             if nmaxdisl is None:
-                nmaxdisl = DislMisc._nmaxdisl*np.ones((nfematerials,)).astype(int)
+                nmaxdisl = self._NMAXDISL*np.ones((nfematerials,)).astype(int)
             if nmaxdislslip is None:
-                nmaxdislslip = DislMisc._nmaxdislslip*np.ones((nfematerials,)).astype(int)
+                nmaxdislslip = self._NMAXDISLSLIP*np.ones((nfematerials,)).astype(int)
             if nmaxescapeddisl is None:
-                nmaxescapeddisl = DislMisc._nmaxescapeddisl*np.ones((nfematerials,)).astype(int)
+                nmaxescapeddisl = self._NMAXESCAPEDDISL*np.ones((nfematerials,)).astype(int)
             if nmaxghostdisl is None:
-                nmaxghostdisl = DislMisc._nmaxghostdisl*np.ones((nfematerials,)).astype(int)
+                nmaxghostdisl = self._NMAXGHOSTDISL*np.ones((nfematerials,)).astype(int)
             if nmaxobsslip is None:
-                nmaxobsslip = DislMisc._nmaxobsslip*np.ones((nfematerials,)).astype(int)
+                nmaxobsslip = self._NMAXOBSSLIP*np.ones((nfematerials,)).astype(int)
             if nmaxsrcslip is None:
-                nmaxsrcslip = DislMisc._nmaxsrcslip*np.ones((nfematerials,)).astype(int)
+                nmaxsrcslip = self._NMAXSRCSLIP*np.ones((nfematerials,)).astype(int)
         self.gradientcorrection = Data(gradientcorrection,'Is there a gradient correction for the DD velocity?',int)
         self.nmaxdisl = ArrayData(nmaxdisl,'Maximum number of dislocations per fe material',int,[None])
         self.nmaxdislslip = ArrayData(nmaxdislslip,'Maximum number of dislocations per slip plane',int,[None])
@@ -599,7 +628,7 @@ class DislMisc(Struct):
         self.check_equal_rows(['nmaxdisl','nmaxdislslip','nmaxescapeddisl','nmaxghostdisl','nmaxobsslip','nmaxsrcslip'])
     
 class Misc(Struct):
-    def __init__(self,dumpincrement=0,incrementcurr=0,increments=None,iscrackproblem=0,potstyle='null',restartincrement=0,timestep=None):
+    def __init__(self,dumpincrement=0,incrementcurr=0,increments=None,iscrackproblem=0,potstyle=None,restartincrement=0,timestep=None):
         self.dumpincrement = Data(dumpincrement,'Increments for dump write',int)
         self.incrementcurr = Data(incrementcurr,'Current increment',int)
         self.increments = Data(increments,'Increments for simulation',int)
@@ -614,33 +643,30 @@ class Damping(Struct):
         self.gamma = Data(gamma,'Damping coefficient',float)
         self.gname = Data(gname,'Damping group name',str)
         
+    @classmethod
+    def temp_damping(cls,gamma):
+        return cls(flag=True,gamma=gamma,gname=TEMPGROUPNAME)
+        
 class Detection(Struct):
-    _nedgescheck = [2]
-    _gname = 'temp'
+    _NEDGESCHECK = [2]
 
     def __init__(self,bandtype=None,damp=None,interfaceedges=None,mdnincrements=None,mdtimestep=None,mnumfe=None,params=None,passdistance=None,ycrack=None):
         self.bandtype = Data(bandtype,'Detection band type',str)
-        if damp is None:
-            damp = Damping(flag=1,gname=Detection._gname)
-        self.damp = damp
-        self.interfaceedges = ArrayData(interfaceedges,'Detection interface edges',int,[None,Detection._nedgescheck])
+        self.damp = Damping() if damp is None else damp
+        self.interfaceedges = ArrayData(interfaceedges,'Detection interface edges',int,[None,self._NEDGESCHECK])
         self.mdnincrements = Data(mdnincrements,'Number of increments for damped MD after passing',int)
         self.mdtimestep = Data(mdtimestep,'Time step for damped MD after passing',float)
         self.mnumfe = Data(mnumfe,'FE material adjacent to detection',int)
-        if params is None:
-            params = np.empty((0,))
         self.params = ArrayData(params,'Parameters for detection band',float,[None])
         self.passdistance = Data(passdistance,'Dislocation pass distance',float)
         
 class Compute(Struct):
     def __init__(self,centro=None):
-        if centro is None:
-            centro = ComputeData(np.empty((0,)))
-        self.centro = centro
+        self.centro = ComputeData() if centro is None else centro
         # add more computes here...
 
 class ComputeData(Struct):
-    def __init__(self,params,active=0,gname='all'):
+    def __init__(self,params=None,active=0,gname='all'):
         self.active = Data(active,'Is compute active?',int)
         self.gname = Data(gname,'Group for compute',str)
         self.params = ArrayData(params,'Parameters for compute',float,[None])           

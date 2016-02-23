@@ -32,7 +32,7 @@ class Material(object):
     
     @property
     def voigt_plane_strain_compliance(self):
-        return spla.inv(voigt_plane_strain_stiffness)
+        return spla.inv(self.voigt_plane_strain_stiffness)
             
     def voigt_rotated_stiffness(self,aold,anew):
         stiffnesstensor = voigt_to_tensor(self.voigt_stiffness)
@@ -40,34 +40,34 @@ class Material(object):
         return tensor_to_voigt(stiffnesstensorrot)  
 
     def voigt_rotated_compliance(self,aold,anew):
-        rotatedstiffness = self.rotated_stiffness(aold,anew)
+        rotatedstiffness = self.voigt_rotated_stiffness(aold,anew)
         return spla.inv(rotatedstiffness)
         
     def voigt_rotated_plane_strain_compliance(self,aold,anew,symmoption=False):
-        rotatedstiffness = self.rotated_stiffness(aold,anew)
+        rotatedstiffness = self.voigt_rotated_stiffness(aold,anew)
         planestrainstiffness = plane_strain_stiffness(rotatedstiffness)
         if symmoption: # eliminate shear-normal coupling terms
             planestrainstiffness = elim_coupling(planestrainstiffness)
         return spla.inv(planestrainstiffness)
         
     def aniso_k_const(self,aold,anew,symmoption=False):
-        compliance = self.plane_strain_compliance(aold,anew,symmoption)
+        compliance = self.voigt_rotated_plane_strain_compliance(aold,anew,symmoption)
         return lekh_eigenvalues(compliance)
         
     def surface_energy(self,plane):
-        pass
+        return self.surfaceenergies[plane]
       
     def usf_energy(self,plane,direction):
         pass
 
     def A_const(self,aold,anew):
-        compliance = self.plane_strain_compliance(aold,anew)
-        return get_aniso_fac(compliance)
+        compliance = self.voigt_rotated_plane_strain_compliance(aold,anew)
+        return aniso_fac(compliance)
     
     def kic(self,aold,anew):
         crackplane = anew[1,:]
         crackplanekey = convert_to_string(crackplane,1)
-        gammasurf = self.get_surface_energy(crackplanekey)
+        gammasurf = self.surface_energy(crackplanekey)
         A = self.A_const(aold,anew)
         return np.sqrt(2*gammasurf/A)
         
@@ -88,7 +88,7 @@ class Material(object):
         (nu, mu) = isotropic_constants(compliance)
         slipplanekey = convert_to_string(slipplane,1)
         burgerskey = convert_to_string(burgersvector,1)
-        gammaus = self.get_usf_energy(slipplanekey,burgerskey)
+        gammaus = self.usf_energy(slipplanekey,burgerskey)
         try:
             return np.sqrt(2*mu/(1-nu)*(1 + (1-nu)*np.tan(phi)**2)*gammaus)/fI(theta)
         except ZeroDivisionError:
@@ -102,6 +102,22 @@ class Material(object):
             print('K_ie: {0}'.format(kie))
         return kic, kie
 
+class Hex(Material):
+    def __init__(self,elasticprops,surfaceenergies,usfenergy):
+        self.surfaceenergies = surfaceenergies
+        self.usfenergy = usfenergy
+        super().__init__('hex',elasticprops)
+    
+    @classmethod
+    def from_potential(cls,potential):
+        return cls(elasticprops=potential.elasticdict('hex'),
+                   surfaceenergies=potential.surfacedict('hex'),
+                   usfenergy=potential.usf)
+    
+    def usf_energy(self,plane,direction):
+        if direction == '110' and plane == '211': # full
+            return self.usfenergy
+        
 class FCC(Material):
     def __init__(self,elasticprops,surfaceenergies,usfenergy):
         self.surfaceenergies = surfaceenergies
@@ -203,7 +219,7 @@ def tensor_to_voigt_index(vals):
         sol = Mmath.set_diff(range(3),set(vals))
         return sol[0] + 3
     
-def get_aniso_fac(mat):
+def aniso_fac(mat):
     a11, a12, a22, a66 = mat[0,0], mat[0,1], mat[1,1], mat[2,2]
     return np.sqrt(a11*a22/2)*np.sqrt((2*a12+a66)/(2*a11) + np.sqrt(a22/a11))
 
@@ -232,7 +248,7 @@ def gcd_many(mylist):
         return mylist[0]
 
 # Sih/Leibowitz anisotropic crack fields
-def get_lekh_eigenvalues(mat):
+def lekh_eigenvalues(mat):
     a11, a12, a16, a22, a26, a66 = mat[0,0], mat[0,1], mat[0,2], mat[1,1], mat[1,2], mat[2,2]
     poly = [a11,-2*a16,2*a12+a66,-2*a26,a22]
     eigs = np.roots(poly)
