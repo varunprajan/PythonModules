@@ -2,9 +2,10 @@ import numpy as np
 import cadd_plot as cdplot
 import dislocation_marker as dm
 import itertools
+from collections import OrderedDict
 
 atomradius = 0.3
-dislobjsize = 300
+dislobjsize = 4000
 keydict = {'def': 'deformed_positions', 'undef': 'undeformed_positions', 'disp': 'displacements',
            'connect': 'fe_elements', 'types': 'types', 'dislpos': 'dislocation_positions', 'centrosymmetry': 'centro',
            'disltypes': 'dislocation_attributes', 'sources': 'source_positions', 'obstacles': 'obstacle_positions',
@@ -34,7 +35,7 @@ class CADDDataDump(object):
         if val is not None:
             if len(val.shape) == 0:
                 val = np.array([val])
-            elif len(val.shape) == 1: # just 1 source, 1 obstacle, etc.
+            elif len(val.shape) == 1: # convert vector to 2d array
                 val = val[np.newaxis,:]
         return val
     
@@ -66,7 +67,7 @@ class CADDDataDump(object):
         
     @property
     def slipsystheta(self):
-        return self.array_from_key('theta')        
+        return self.array_from_key('theta').ravel()       
     
     def theta_from_isys(self,isys):
         return self.slipsystheta[isys-1] # off by one issue for indexing (Python vs. Fortran)
@@ -177,15 +178,15 @@ class CADDDataDump(object):
                     'pad': self.gen_pad_plot,
                     'interface': self.gen_interface_plot,
                     'feelements': self.gen_fe_elements_plot,
-                    'disl': self.gen_disl_plot,
                     'sources': self.gen_sources_plot,
-                    'obstacles': self.gen_obstacles_plot}
-        res = {}
+                    'obstacles': self.gen_obstacles_plot,
+                    'disl': self.gen_disl_plot}
+        res = []
         for attr in attrlist:
-            res[attr] = attrdict[attr]()
+            res.append(attrdict[attr]())
         self.currentplot = res
         
     def add_to_axes(self,ax):
-        for obj in self.currentplot.values():
+        for obj in self.currentplot:
             if obj is not None:
                 obj.plot(ax)

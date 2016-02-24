@@ -75,12 +75,12 @@ class Simulation(object):
     def objects_to_plot(self):
         """Returns objects (atoms, feelements, disl, etc.) to plot, based on simulation type"""
         objs = ['atoms'] # if not present, there is no issue: they will be empty arrays, not plotted
+        if self.simtype in ['cadd_nodisl', 'cadd']:
+            objs.extend(['pad','interface'])
         if self.simtype in ['fe','dd','cadd','cadd_nodisl']:
             objs.extend(['feelements'])
         if self.simtype in ['dd','cadd']:
-            objs.extend(['disl','sources','obstacles'])
-        if self.simtype in ['cadd_nodisl', 'cadd']:
-            objs.extend(['pad','interface'])
+            objs.extend(['disl','sources','obstacles']) # it's important that disl appears last, or it will possibly be covered up by pad atoms
         return objs       
     
     def dump_file_path(self,increment):
@@ -582,7 +582,7 @@ class SlipSystem(Struct):
 
     def __init__(self,nslipplanes=None,origin=None,space=None,theta=None):
         self.nslipplanes = ArrayData(nslipplanes,'Number of planes in slip system',int,[None])
-        self.origin = ArrayData(origin,'Origin of slip system',float,[None,self._norigincheck])
+        self.origin = ArrayData(origin,'Origin of slip system',float,[None,self._NORIGINCHECK])
         self.space = ArrayData(space,'Spacing of slip planes',float,[None])
         self.theta = ArrayData(theta,'Angle of slip system',float,[None])
     
