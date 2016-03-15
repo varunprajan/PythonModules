@@ -2,9 +2,9 @@ import matplotlib as mpl
 import copy
 import my_plot as myplot
 
-def my_quick_plot(data,**kwargs):
-    plotdata = LinePlotData.from_dataset(data)
-    fig = myplot.my_plot(plotdata)
+def my_quick_plot(data,style=None,fignum=1,**kwargs):
+    plotdata = LinePlotData.from_dataset(data,style)
+    fig = myplot.my_plot(plotdata,fignum=fignum)
     myplot.pretty_figure(fig,**kwargs)
 
 def get_setter_fun(attribute):
@@ -37,6 +37,13 @@ class Style(dict):
         getattr(self,attr1).select_first_n(n)
         getattr(self,attr2).duplicate_with_n(n)
 
+    @classmethod
+    def markers(cls):
+        self = cls()
+        self.linestyle = LineAttributes([''])
+        self.marker = LineAttributes(['o'])
+        return self
+        
     @classmethod
     def alternating_1(cls,n):
         self = cls()

@@ -5,6 +5,7 @@ import cadd_io as cdio
 import cadddatadump as cddump
 import my_plot as myplot
 import os
+import shutil
 import itertools
 import warnings
 
@@ -13,16 +14,26 @@ TEMPGROUPNAME = 'temp'
 class Simulation(object):
     """Top-level class for CADD simulation. Contains simname, simtype ('cadd','cadd_nodisl','fe', etc.)
     and directories for inputs and outputs."""
-    def __init__(self,simtype,simname,userpath='',fortranpath='',dumppath='',readinput=True,simfile=None,nfematerials=None,data=None):
+    def __init__(self,simtype,simname,userpath='',fortranpath='',dumppath='',restartpath='',readinput=True,simfile=None,nfematerials=None,data=None):
         self.simtype = simtype
         self.simname = simname
         self.userpath = userpath
         self.fortranpath = fortranpath
         self.dumppath = dumppath
+        self.restartpath = restartpath
         if data is not None:
             self.data = data
         elif readinput:
             self.data = self.read_user_input_data(simfile,nfematerials)
+    
+    @property
+    def data(self):
+        return self._data
+        
+    @data.setter
+    def data(self,data):
+        data.check_data()
+        self._data = data
     
     # read inputs
     def read_user_input_data(self,simfile=None,nfematerials=None):
@@ -56,17 +67,18 @@ class Simulation(object):
         return '{}_{}'.format(self.simname,structname)
             
     # plot dump
-    def plot_dump_from_increment(self,increment,fignum=1,**kwargs):
-        """Plots dump file corresponding to a particular increment number"""
+    def plot_dump_from_increment(self,increment,style=None,fignum=1,pretty=True,**kwargs):
+        """Plots dump file corresponding to a particular increment number.
+        Plot can be prettified, if desired. Style is used to control type of plot (e.g., centrosymmetry, etc.)"""
         filepath = self.dump_file_path(increment)
-        return self.plot_dump_from_file(filepath,fignum=fignum,**kwargs)
+        return self.plot_dump_from_file(filepath,style=style,fignum=fignum,pretty=pretty,**kwargs)
         
-    def plot_dump_from_file(self,filepath,fignum=1,pretty=True,**kwargs):
+    def plot_dump_from_file(self,filepath,style=None,fignum=1,pretty=True,**kwargs):
         """Plots dump file corresponding to a particular dump file path"""
         dumpdict = cdio.read_from_dump(filepath) # read in dump dictionary from file
         cadddump = cddump.CADDDataDump(dumpdict) # initialize cadddump object
         objs = self.objects_to_plot() # figure out objects to plot (atoms, elements, etc.), based on simtype
-        cadddump.gen_all_plot(objs) # generate plot objects for these attributes
+        cadddump.gen_all_plot(objs,style=style) # generate plot objects for these attributes
         fig = myplot.my_plot(cadddump,fignum=fignum) # plot them!
         if pretty:
             myplot.pretty_figure(fig,aspect=1,ticksize=None,**kwargs)
@@ -80,17 +92,29 @@ class Simulation(object):
         if self.simtype in ['fe','dd','cadd','cadd_nodisl']:
             objs.extend(['feelements'])
         if self.simtype in ['dd','cadd']:
-            objs.extend(['disl','sources','obstacles']) # it's important that disl appears last, or it will possibly be covered up by pad atoms
+            objs.extend(['disl','sources','obstacles'])
         return objs       
     
     def dump_file_path(self,increment):
         """Returns path of dump file corresponding to increment"""
         return os.path.join(self.dumppath,self.dump_file_name(increment))
     
-    def dump_file_name(self,increment,suffix='.dump'):
+    def dump_file_name(self,increment,suffix='dump'):
         """Returns name of dump file corresponding to increment
         E.g. increment = 100 -> '[simname].100.dump'"""
-        return '{}.{}{}'.format(self.simname,increment,suffix)
+        return '{}.{}.{}'.format(self.simname,increment,suffix)
+        
+    # restart simulation
+    def restart_sim(self,increment,restartsimname,suffix='restart',rename=True):
+        restartsuffix = '{}.{}'.format(increment,suffix)
+        for structname in self.data.__dict__.keys():
+            filenameold = '{}_{}.{}'.format(self.simname,structname,restartsuffix)
+            filenamenew = '{}_{}'.format(restartsimname,structname)
+            filepathold = os.path.join(self.restartpath,filenameold)
+            filepathnew = os.path.join(self.fortranpath,filenamenew)
+            shutil.copyfile(filepathold,filepathnew)
+        if rename:
+            self.simname = restartsimname        
 
 class Struct(object):
     """Generic structure container. Can perform reads from dictionary, writes to fortran file,
@@ -117,7 +141,7 @@ class Struct(object):
         signs, cuts, etc. should all have the same number of rows: ndisl
         If all arrays have zero rows, this is declared explicitly."""
         nrowslist = [getattr(self,attr).nrows for attr in attributelist]
-        if len(set(nrowslist)) != 1: # i.e. dissimilar entries
+        if len(set(nrowslist)) > 1: # i.e. dissimilar entries
             raise ValueError('Nrows is not consistent across arrays for structure {0}'.format(self))
 
     # read
@@ -138,10 +162,8 @@ class CADDData(Struct):
     """Second-level class for CADD simulation. Contains all
     of the various structures (nodes, materials, compute, etc.)
     for the specific simulation"""            
-    def __init__(self,simtype,nfematerials=None,nodes=None,materials=None,misc=None,groups=None,compute=None,potentials=None,
-                                                interactions=None,neighbors=None,damping=None,feelements=None,dislmisc=None,
-                                                disl=None,escapeddisl=None,ghostdisl=None,obstacles=None,sources=None,slipsys=None,
-                                                detection=None):        
+    def __init__(self,simtype,nfematerials=None,nodes=None,materials=None,misc=None,groups=None,compute=None,potentials=None,interactions=None,neighbors=None,damping=None,feelements=None,dislmisc=None,disl=None,escapeddisl=None,ghostdisl=None,obstacles=None,sources=None,slipsys=None,detection=None):
+    
         # general
         self.nodes = Nodes() if nodes is None else nodes
         self.materials = ListStruct(Material,materials)
@@ -176,15 +198,16 @@ class CADDData(Struct):
     
     # read/check
     def read_user_inputs(self,mainuserinputfile,subdir):
-        datadict = cdio.read_input(mainuserinputfile,subdir=subdir) # read user inputs into dictionary
-        self.read_from_dict(datadict) # read dictionary
-        self.check_data() # check validity of inputs
+        """Reads user inputs into dictionary; then populates self using dictionary"""
+        datadict = cdio.read_input(mainuserinputfile,subdir=subdir)
+        self.read_from_dict(datadict)
     
     def struct_check(self):
         self.check_interactions()
         self.check_nfematerials()
         
     def check_interactions(self):
+        """Check that interactions between all materials are present"""
         try:
             nmaterials = self.materials.num_structs
             npotentials = self.potentials.num_structs
@@ -193,29 +216,26 @@ class CADDData(Struct):
             pass
             
     def check_nfematerials(self):
+        """Check that number of fe materials is consistent across structures"""
         n = self.get_nfematerials()
         if len(n) > 1:
             raise ValueError('Inconsistent number of fematerials across structures')
             
     def get_nfematerials(self):
-        n = set()
-        for attr in ['feelements','disl','escapeddisl','ghostdisl','obstacles','sources','slipsys']:
+        def nfematerials(attr):
+            obj = getattr(self,attr)
             try:
-                n.add(getattr(self,attr).num_structs)
+                return obj.num_structs
             except AttributeError:
-                pass
-        try:
-            n.add(self.dislmisc.nfematerials)
-        except AttributeError:
-            pass
-        return n
+                return obj.nfematerials
+        attrlist = ['feelements','disl','escapeddisl','ghostdisl','obstacles','sources','slipsys','dislmisc']
+        return set(nfematerials(attr) for attr in attrlist if hasattr(self,attr))
 
 class ListStruct(object):
     """Third-level class for CADD simulation. Contains information corresponding
     to a list of structures (e.g. material information, where there is a structure
     for each material)"""
     def __init__(self,subclass,structlist=None):
-        """Subclass is the class of the individual structure"""
         self.structlist = [] if structlist is None else structlist
         self.subclass = subclass
     
@@ -236,14 +256,14 @@ class ListStruct(object):
     
     # read
     def read_from_dict(self,data):
-        """Read items from dictionary, then check inputs"""
+        """Populate self using list of dictionaries"""
         for structdict in data:
             newinstance = self.subclass()
             newinstance.read_from_dict(structdict)
             self.add_struct(newinstance)
     
     def write_fortran(self,f):
-        """Write data in all structures in structlist to fortran file"""
+        """Write data in self to fortran file"""
         f.write('{} \n'.format(self.num_structs))
         for struct in self.structlist:
             struct.write_fortran(f)
@@ -276,6 +296,7 @@ class Data(object):
             self._val = None
         
     def coerce_val(self,val):
+        """Convert value to desired type, if possible: boolean to integer, or integer to floating point"""
         if isinstance(val,bool) and (self.desiredtype is int): # boolean to integer
             val = int(val)
         if isinstance(val,int) and (self.desiredtype is float): # integer to floating point
@@ -330,41 +351,16 @@ class ArrayData(object):
         
     @val.setter
     def val(self,value):
+        """Initializes array to default array if none is supplied,
+        otherwise ensures that type and shape of supplied array are correct"""
         if value is None:
-            self._val = self.default_array
+            value = self.default_array
         else:
-            self._val = self.coerce_dimensionality(value)
-            self.ensure_type()
-            self.check_shape()
-    
-    def ensure_type(self):
-        """Attempt to convert array to desired type (e.g. int to float)
-        If this attempt fails, throw an error"""
-        try:
-            self._val = self.val.astype(self.desiredtype)
-        except AttributeError:
-            message1 = 'Type conversion failed\n'
-            message2 = '{0} must be numpy array of type {1}'.format(self,self.desiredtype)
-            raise ValueError(message1+message2)
-        
-    def check_shape(self):
-        """Check that array has desired shape.
-        If not, throw an error"""
-        dimname = {0: 'rows', 1: 'columns'}
-        shapeactual = self.shape
-        shapedesired = self.desiredshape
-        for dim, (m, mdesired) in enumerate(zip(shapeactual,shapedesired)):
-            if not self.has_desired_m(m,mdesired):
-                dimnamestr = ' or '.join([str(m) for m in mdesired])
-                message = '{0} should have {1} {2}'.format(self,dimnamestr,dimname[dim])
-                raise ValueError(message)
-                
-    def has_desired_m(self,m,mdesired):
-        if mdesired is not None:
-            return m in mdesired
-        else:
-            return True
-       
+            value = self.coerce_dimensionality(value)
+            value = self.coerce_to_type(value)
+            self.check_shape(value)
+        self._val = value
+
     def coerce_dimensionality(self,val):
         """Coerce array to have correct dimensionality:
         1) Empty array -> 1D or 2D arrays with zero rows
@@ -374,24 +370,47 @@ class ArrayData(object):
             val = self.default_array
         if not val.shape: # single entry
             val = np.array([val])
-        if len(self.desiredshape) == 2: # single row
-            if len(val.shape) == 1:
-                val = val[np.newaxis,:]
+        if len(self.desiredshape) == 2 and len(val.shape) == 1: # single row
+            val = val[np.newaxis,:]
         return val
+        
+    def coerce_to_type(self,value):
+        """Attempt to convert array to desired type (e.g. int to float)
+        If this attempt fails, throw an error"""
+        try:
+            return value.astype(self.desiredtype)
+        except AttributeError:
+            message1 = 'Type conversion failed\n'
+            message2 = '{0} must be numpy array of type {1}'.format(self,self.desiredtype)
+            raise ValueError(message1+message2)
+        
+    def check_shape(self,value):
+        """Check that array has desired shape.
+        If not, throw an error"""
+        def has_desired_m(m,mdesired):
+            if mdesired is not None:
+                return m in mdesired
+            else:
+                return True
+        dimname = {0: 'rows', 1: 'columns'}
+        
+        shapeactual = value.shape
+        shapedesired = self.desiredshape
+        for dim, (m, mdesired) in enumerate(zip(shapeactual,shapedesired)):
+            if not has_desired_m(m,mdesired):
+                dimnamestr = ' or '.join([str(m) for m in mdesired])
+                message = '{0} should have {1} {2}'.format(self,dimnamestr,dimname[dim])
+                raise ValueError(message)
     
     @property
     def default_array(self):
-        """If array is empty, create 1D or 2D zero array with zero rows, according to desired shape"""
-        dims = []
-        for desireddim in self.desiredshape:
-            if desireddim is None:
-                dim = 0
-            else:
-                try:
-                    dim = desireddim[0]
-                except TypeError:
-                    dim = desireddim
-            dims.append(dim)
+        """If array is empty, create 1D or 2D (zero) array with zero rows/columns, according to desired shape"""
+        def dim(desireddim):
+            try:
+                return desireddim[0]
+            except TypeError:
+                return 0 if desireddim is None else desireddim
+        dims = [dim(desireddim) for desireddim in self.desiredshape]
         return np.zeros(tuple(dims)).astype(self.desiredtype)
         
     def check_data(self):
@@ -499,7 +518,7 @@ class Interactions(Struct):
         for i, j in itertools.product(range(1,nmaterials+1),repeat=2):
             if not (Mmath.row_in_array([i,j],interactions) or
                     Mmath.row_in_array([j,i],interactions)):
-                raise ValueError('Missing interaction between {0} and {1}'.format(i,j))
+                raise ValueError('Missing interaction between materials {0} and {1}'.format(i,j))
                 
     def check_wrong_potential(self,npotentials):
         """Checks whether potentials exist for all interactions"""
@@ -622,7 +641,7 @@ class DislMisc(Struct):
     
     @property
     def nfematerials(self):
-        return self.nmaxdisl.size
+        return self.nmaxdisl.nrows
         
     def struct_check(self):
         self.check_equal_rows(['nmaxdisl','nmaxdislslip','nmaxescapeddisl','nmaxghostdisl','nmaxobsslip','nmaxsrcslip'])
@@ -650,15 +669,17 @@ class Damping(Struct):
 class Detection(Struct):
     _NEDGESCHECK = [2]
 
-    def __init__(self,bandtype=None,damp=None,interfaceedges=None,mdnincrements=None,mdtimestep=None,mnumfe=None,params=None,passdistance=None,ycrack=None):
+    def __init__(self,bandtype=None,damp=None,impermissibleedges=None,maxdisttointerface=None,mdnincrements=None,mdtimestep=None,mnumfe=None,params=None,passdistanceatoc=None,passdistancectoa=None):
         self.bandtype = Data(bandtype,'Detection band type',str)
         self.damp = Damping() if damp is None else damp
-        self.interfaceedges = ArrayData(interfaceedges,'Detection interface edges',int,[None,self._NEDGESCHECK])
+        self.impermissibleedges = ArrayData(impermissibleedges,'Edges that dislocation path cannot cross',int,[None,self._NEDGESCHECK])
+        self.maxdisttointerface = Data(maxdisttointerface,'Maximum distance from inner edge of detection band to interface along slip plane',float)
         self.mdnincrements = Data(mdnincrements,'Number of increments for damped MD after passing',int)
         self.mdtimestep = Data(mdtimestep,'Time step for damped MD after passing',float)
         self.mnumfe = Data(mnumfe,'FE material adjacent to detection',int)
         self.params = ArrayData(params,'Parameters for detection band',float,[None])
-        self.passdistance = Data(passdistance,'Dislocation pass distance',float)
+        self.passdistanceatoc = Data(passdistanceatoc,'Dislocation pass distance, atomistic -> continuum',float)
+        self.passdistancectoa = Data(passdistancectoa,'Dislocation pass distance, continuum -> atomistic',float)
         
 class Compute(Struct):
     def __init__(self,centro=None):
