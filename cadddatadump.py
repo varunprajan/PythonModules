@@ -33,7 +33,8 @@ class CADDDataDump(object):
     # fe
     _MESHLINECOLOR = 'r'
     _MESHLINEWIDTH = 2
-    _MESHLINE = cdplot.Edge(width=_MESHLINEWIDTH,color=_MESHLINECOLOR,zorder=0)
+    _MESHLINEZORDER = -0.5
+    _MESHLINE = cdplot.Edge(width=_MESHLINEWIDTH,color=_MESHLINECOLOR,zorder=_MESHLINEZORDER)
     
     # dd stuff 
     _DISLZORDER = 1 # (show above fe mesh)
@@ -106,7 +107,8 @@ class CADDDataDump(object):
     @property
     def dislisys(self):
         return self.disltypes[:,0]
-        
+    
+    @property
     def dislbsgn(self):
         return self.disltypes[:,1]
     

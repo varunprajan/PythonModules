@@ -162,7 +162,7 @@ class CADDData(Struct):
     """Second-level class for CADD simulation. Contains all
     of the various structures (nodes, materials, compute, etc.)
     for the specific simulation"""            
-    def __init__(self,simtype,nfematerials=None,nodes=None,materials=None,misc=None,groups=None,compute=None,potentials=None,interactions=None,neighbors=None,damping=None,feelements=None,dislmisc=None,disl=None,escapeddisl=None,ghostdisl=None,obstacles=None,sources=None,slipsys=None,detection=None):
+    def __init__(self,simtype,nfematerials=None,nodes=None,materials=None,misc=None,groups=None,compute=None,potentials=None,interactions=None,neighbors=None,damping=None,feelements=None,dislmisc=None,disl=None,escapeddisl=None,ghostdisl=None,obstacles=None,sources=None,slipsys=None,detection=None,caddmovingmesh=None,atomfindcrack=None):
     
         # general
         self.nodes = Nodes() if nodes is None else nodes
@@ -191,10 +191,15 @@ class CADDData(Struct):
             self.obstacles = ListStruct(Obstacles,obstacles)
             self.sources = ListStruct(Sources,sources)
             self.slipsys = ListStruct(SlipSystem,slipsys)
+        
+        # cadd (with or without dd)
+        if simtype in ['cadd','cadd_nodisl']:
+            self.atomfindcrack = AtomFindCrack() if atomfindcrack is None else atomfindcrack
                 
         # cadd
         if simtype == 'cadd':
             self.detection = Detection() if detection is None else detection
+            self.caddmovingmesh = CADDMovingMesh() if caddmovingmesh is None else caddmovingmesh
     
     # read/check
     def read_user_inputs(self,mainuserinputfile,subdir):
@@ -690,4 +695,14 @@ class ComputeData(Struct):
     def __init__(self,params=None,active=0,gname='all'):
         self.active = Data(active,'Is compute active?',int)
         self.gname = Data(gname,'Group for compute',str)
-        self.params = ArrayData(params,'Parameters for compute',float,[None])           
+        self.params = ArrayData(params,'Parameters for compute',float,[None])
+
+class CADDMovingMesh(Struct):
+    def __init__(self,deltaxshift=0.0,maxshift=0.0):
+        self.deltaxshift = Data(deltaxshift,'Crack must be moved by a multiple of this distance',float)
+        self.maxshift = Data(maxshift,'Maximum distance crack can be moved in a single pass',float)
+        
+class AtomFindCrack(Struct):
+    def __init__(self,mnum=1):
+        self.mnum = Data(mnum,'Material number for atomistic region',int)
+        
