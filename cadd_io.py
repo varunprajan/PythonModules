@@ -158,11 +158,11 @@ def writeLammpsDump(datadict,filename,timestep):
         f.write('{0}\n'.format(natoms))
         f.write('ITEM: BOX BOUNDS ss ss pp\n') # may need to change this, if PBCS are implemented
         boxbounds = getBoxBounds(xyarray)
-        Mio.myWriteArray(f,boxbounds)
+        Mio.my_write_array(f,boxbounds)
         f.write('ITEM: ATOMS id type xs ys zs\n')
         arrayout = getArrayOut(xyarray,typesarray,boxbounds)
-        Mio.myWriteArray(f,arrayout,fmt=['{:d} ']*2+['{:f} ']*3)
-        # Mio.myWriteArray(f,filename,arrayout,fmt='%0i %0i %0f %0f %0f')
+        Mio.my_write_array(f,arrayout,fmt=['{:d} ']*2+['{:f} ']*3)
+        # Mio.my_write_array(f,filename,arrayout,fmt='%0i %0i %0f %0f %0f')
         
 def getBoxBounds(xyarray):
     boxbounds = np.empty((3,2))

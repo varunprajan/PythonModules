@@ -41,7 +41,7 @@ class DumpFile(LammpsFile):
                     return i
     
     # read
-    def read_file(self,postype):
+    def read_file(self,postype='unscaled'):
         res = self.cut_down_file(self.bounds)
         if postype == 'scaled':
             res = self.unscale_coords(res) # back to real coordinates

@@ -39,7 +39,7 @@ class CADDDataDump(object):
     # dd stuff 
     _DISLZORDER = 1 # (show above fe mesh)
     _DISLOBJCOLOR = 'b'
-    _DISLOBJSIZE = 4000
+    _DISLOBJSIZE = 400
     _DISLPOINT = cdplot.Point(color=_DISLOBJCOLOR,size=_DISLOBJSIZE,zorder=_DISLZORDER)
     _SOURCEPOINT = cdplot.Point(facecolor='w',edgecolor=_DISLOBJCOLOR,size=_DISLOBJSIZE,zorder=_DISLZORDER) # empty circle
     _OBSPOINT = cdplot.Point(facecolor=_DISLOBJCOLOR,edgecolor=_DISLOBJCOLOR,size=_DISLOBJSIZE,zorder=_DISLZORDER) # solid circle
@@ -246,7 +246,7 @@ class CADDDataDump(object):
             point = self._SOURCEPOINT if point is None else point
             return self.gen_disl_obj_plot_sub(self.sources,point)
 
-    def gen_obstacles_plot(self):
+    def gen_obstacles_plot(self,point=None):
         if self.obstacles.size:
             point = self._OBSPOINT if point is None else point
             return self.gen_disl_obj_plot_sub(self.obstacles,point)

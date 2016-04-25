@@ -532,9 +532,10 @@ class Interactions(Struct):
             raise ValueError('Missing potential')
         
 class Neighbors(Struct):
-    def __init__(self,checkdisp=None,delay=None,every=None,images=None,Lz=None,skin=None):
+    def __init__(self,checkdisp=None,delay=None,dimensions=None,every=None,images=None,Lz=None,skin=None):
         self.checkdisp = Data(checkdisp,'Increments for reneighboring check',int)
         self.delay = Data(delay,'Increments for reneighboring delay',int)
+        self.dimensions = Data(dimensions,'Dimensions for atomistic region',int)
         self.every = Data(every,'Increments for reneighboring every',int)
         self.images = Data(images,'Images in z-direction',int)
         self.Lz = Data(Lz,'Lz, out-of-plane distance',float)
@@ -652,14 +653,13 @@ class DislMisc(Struct):
         self.check_equal_rows(['nmaxdisl','nmaxdislslip','nmaxescapeddisl','nmaxghostdisl','nmaxobsslip','nmaxsrcslip'])
     
 class Misc(Struct):
-    def __init__(self,dumpincrement=0,incrementcurr=0,increments=None,iscrackproblem=0,potstyle=None,restartincrement=0,timestep=None):
+    def __init__(self,dumpincrement=0,incrementcurr=0,increments=None,iscrackproblem=0,potstyle=None,restartincrement=0):
         self.dumpincrement = Data(dumpincrement,'Increments for dump write',int)
         self.incrementcurr = Data(incrementcurr,'Current increment',int)
         self.increments = Data(increments,'Increments for simulation',int)
         self.iscrackproblem = Data(iscrackproblem,'Are we simulating a crack problem?',int)
         self.potstyle = Data(potstyle,'Potential style',str)
         self.restartincrement = Data(restartincrement,'Increments for restart write',int)
-        self.timestep = Data(timestep,'Timestep',float)
         
 class Damping(Struct):
     def __init__(self,flag=None,gamma=0.0,gname=None):
