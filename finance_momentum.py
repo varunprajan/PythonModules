@@ -1,5 +1,5 @@
 import numpy as np
-# import first_high_low as fhl
+import first_high_low_2 as fhl
 import finance_base as fbase
 
 _UP = 1
@@ -60,11 +60,11 @@ class MomentumTimeSeries(fbase.TimeSeries):
             return np.nan, 0
     
     def hits_high(self,i,target):
-        # idx = fhl.first_high(self.high[i:],target)
+        idx = fhl.first_high(self.high[i:],target)
         return None if idx == -1 else idx # if idx == -1, no match
     
     def hits_low(self,i,target):
-        # idx = fhl.first_low(self.low[i:],target)
+        idx = fhl.first_low(self.low[i:],target)
         return None if idx == -1 else idx # if idx == -1, no match
 
 class BracketSimulation(object):
